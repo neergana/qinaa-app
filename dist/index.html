@@ -11,7 +11,7 @@
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" href="/assets/mark.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="/styles.css?v=6" />
+    <link rel="stylesheet" href="/styles.css?v=9" />
   </head>
   <body>
     <div class="ambient ambient-one"></div>
@@ -26,6 +26,10 @@
           <span><strong>حارة</strong><small>المافيا</small></span>
         </button>
         <div class="topbar-actions">
+          <button id="accountButton" class="account-chip" type="button" aria-label="فتح حساب اللاعب">
+            <span id="accountInitial" class="account-initial">؟</span>
+            <span class="account-chip-copy"><b id="accountLabel">حساب لاعب</b><small id="accountSublabel">مطلوب للعب</small></span>
+          </button>
           <button id="connectionChip" class="connection-chip" type="button" title="تبديل حالة الاتصال التجريبية">
             <span class="status-dot"></span>
             <span class="connection-copy"><b>متصل</b><small>محاكاة محلية</small></span>
@@ -56,7 +60,7 @@
                 انضمام برمز
               </button>
             </div>
-            <button class="text-link" data-route="lobby" type="button">دخول الغرفة التجريبية <span>←</span></button>
+            <button class="text-link" data-watch-room="majlis" type="button">مشاهدة غرفة مباشرة بلا حساب <span>←</span></button>
           </div>
 
           <div class="stat-strip" aria-label="خصائص اللعبة">
@@ -64,6 +68,15 @@
             <div><strong>5+</strong><span>لاعبين للبدء</span></div>
             <div><strong>∞</strong><span>جولات من الخداع</span></div>
           </div>
+
+          <section class="rooms-section" aria-labelledby="roomsTitle">
+            <div class="section-heading rooms-heading">
+              <div><span>ادخل الآن</span><h2 id="roomsTitle">الغرف المفتوحة</h2></div>
+              <b class="live-rooms-count"><i></i><span id="liveRoomsCount">3 غرف</span></b>
+            </div>
+            <p class="rooms-lede">شاهد أي غرفة عامة فوراً ومن دون حساب، أو سجّل حساب لاعب للانضمام إلى الجولة.</p>
+            <div id="roomDirectory" class="room-directory"></div>
+          </section>
 
           <div class="section-heading">
             <div><span>كيف تسير اللعبة؟</span><h2>ليلة تكشف الوجوه</h2></div>
@@ -111,11 +124,17 @@
             </button>
           </div>
 
+          <div class="panel spectators-panel">
+            <div class="panel-heading"><h2>المشاهدون</h2><span><b id="spectatorCount">3</b> يتابعون بلا تأثير</span></div>
+            <div id="spectatorList" class="spectator-list"></div>
+          </div>
+
           <div class="panel settings-panel">
             <div class="panel-heading"><h2>إعدادات الجولة</h2><span>توزيع ذكي حسب العدد</span></div>
             <div class="setting-row"><div class="setting-icon"><svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8ZM19 8v6M16 11h6"/></svg></div><div><strong>الأدوار الأساسية</strong><span>مافيا (2) · طبيب · محقق · 4 مواطنين</span></div><b class="ready-tag">تلقائي</b></div>
             <div class="setting-row"><div class="setting-icon"><svg viewBox="0 0 24 24"><path d="M20.8 4.6a5.5 5.5 0 00-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 00-7.8 7.8l1.1 1.1L12 21l7.7-7.5a5.5 5.5 0 001.1-8.9Z"/></svg></div><div><strong>كيوبيد</strong><span>يربط عاشقين بمصير واحد</span></div><label class="switch"><input id="cupidToggle" type="checkbox"><span></span></label></div>
             <div class="setting-row"><div class="setting-icon"><svg viewBox="0 0 24 24"><path d="M9 3h6M10 3v5l-5.5 9.5A2.3 2.3 0 006.5 21h11a2.3 2.3 0 002-3.5L14 8V3M7 15h10"/></svg></div><div><strong>الساحرة</strong><span>جرعة إنقاذ وأخرى للإقصاء</span></div><label class="switch"><input id="witchToggle" type="checkbox"><span></span></label></div>
+            <div class="setting-row"><div class="setting-icon"><svg viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 018 0v3"/></svg></div><div><strong>غرفة خاصة</strong><span>تختفي من الرئيسية ولا تسمح بالمشاهدة</span></div><label class="switch"><input id="privateRoomToggle" type="checkbox"><span></span></label></div>
           </div>
 
           <div class="host-note">
@@ -184,11 +203,27 @@
         <form method="dialog" id="joinForm">
           <div class="dialog-grip"></div>
           <div class="dialog-heading"><div><small>انضم إلى رفاقك</small><h2>دخول غرفة</h2></div><button class="icon-button" value="cancel" aria-label="إغلاق"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
-          <label>اسمك داخل الحارة<input id="playerNameInput" value="سامي" maxlength="18" autocomplete="nickname" /></label>
           <label>رمز الغرفة<input id="roomCodeInput" inputmode="text" placeholder="MAF-728" maxlength="7" /></label>
           <p class="field-error" id="joinError" role="alert"></p>
           <button class="button button-primary button-large full" value="default">دخول الغرفة</button>
-          <small class="safe-copy">لن يُطلب منك إنشاء حساب في النموذج التجريبي.</small>
+          <small class="safe-copy">يتطلب اللعب حساباً. المشاهدة في الغرف العامة لا تتطلب حساباً.</small>
+        </form>
+      </dialog>
+
+      <dialog id="accountDialog" class="sheet-dialog account-dialog">
+        <form method="dialog" id="accountForm">
+          <div class="dialog-grip"></div>
+          <div class="dialog-heading"><div><small>هوية واحدة داخل الحارة</small><h2 id="accountDialogTitle">إنشاء حساب لاعب</h2></div><button class="icon-button" value="cancel" aria-label="إغلاق"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+          <div class="account-fields">
+            <label>الاسم الظاهر<input id="accountNameInput" maxlength="24" autocomplete="name" placeholder="مثال: سامي العلوي" required /></label>
+            <label>اسم المستخدم<input id="accountUsernameInput" maxlength="20" autocomplete="username" placeholder="sami.mafia" required /></label>
+            <label>البريد الإلكتروني<input id="accountEmailInput" type="email" autocomplete="email" placeholder="name@example.com" required /></label>
+            <label>تاريخ الميلاد<input id="accountBirthInput" type="date" autocomplete="bday" required /></label>
+            <label class="account-password-field">كلمة المرور<input id="accountPasswordInput" type="password" minlength="8" autocomplete="new-password" placeholder="8 أحرف على الأقل" required /></label>
+          </div>
+          <p class="field-error" id="accountError" role="alert"></p>
+          <button class="button button-primary button-large full" id="saveAccountButton" value="default">إنشاء الحساب والمتابعة</button>
+          <small class="safe-copy">حساب تجريبي محفوظ على هذا الجهاز فقط. كلمة المرور لا تُحفظ ولا تُرسل في هذا النموذج.</small>
         </form>
       </dialog>
 
@@ -207,6 +242,6 @@
       <div id="toast" class="toast" role="status" aria-live="polite"></div>
     </div>
 
-    <script type="module" src="/js/app.js?v=6"></script>
+    <script type="module" src="/js/app.js?v=9"></script>
   </body>
 </html>

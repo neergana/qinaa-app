@@ -9,10 +9,25 @@ export const initialPlayers = [
   { id: "ziad", name: "زياد", initial: "ز", accent: "a3", alive: true, connected: true, role: "مواطن" },
 ];
 
+export const initialRooms = [
+  { id: "majlis", name: "مجلس الحارة", code: "MAF-728", status: "نهار الحارة", phase: "day", players: 8, capacity: 20, spectators: 14, private: false },
+  { id: "rabat", name: "سهرة الرباط", code: "MAF-314", status: "بانتظار اللاعبين", phase: "day", players: 5, capacity: 12, spectators: 3, private: false },
+  { id: "ghosts", name: "نادي الأشباح", code: "MAF-991", status: "حلّ الليل", phase: "night", players: 12, capacity: 12, spectators: 21, private: false },
+];
+
 export const state = {
   route: "home",
   players: structuredClone(initialPlayers),
-  options: { cupid: false, witch: false },
+  rooms: structuredClone(initialRooms),
+  activeRoomId: "majlis",
+  account: null,
+  spectator: false,
+  spectators: [
+    { id: "viewer-1", name: "زائر 21", guest: true },
+    { id: "viewer-2", name: "ريم", guest: false },
+    { id: "viewer-3", name: "مشاهد 08", guest: true },
+  ],
+  options: { cupid: false, witch: false, privateRoom: false },
   connected: true,
   botActive: false,
   currentTab: "arena",
@@ -64,6 +79,17 @@ export function setPlayerName(name) {
   localStorage.setItem("mafia-player-name", name);
 }
 
+export function saveAccount(profile) {
+  state.account = {
+    displayName: profile.displayName,
+    username: profile.username,
+    email: profile.email,
+    birthDate: profile.birthDate,
+  };
+  localStorage.setItem("mafia-account-profile", JSON.stringify(state.account));
+  setPlayerName(profile.displayName);
+}
+
 export function loadLocalState() {
   const name = localStorage.getItem("mafia-player-name");
   if (name) setPlayerName(name);
@@ -72,6 +98,15 @@ export function loadLocalState() {
     if (options) state.options = { ...state.options, ...options };
   } catch (_) {
     // Keep safe defaults when local browser data is malformed.
+  }
+  try {
+    const account = JSON.parse(localStorage.getItem("mafia-account-profile") || "null");
+    if (account?.displayName && account?.username && account?.email && account?.birthDate) {
+      state.account = account;
+      setPlayerName(account.displayName);
+    }
+  } catch (_) {
+    // Keep the visitor signed out when local browser data is malformed.
   }
 }
 

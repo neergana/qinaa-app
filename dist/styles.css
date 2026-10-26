@@ -81,6 +81,14 @@ svg { width: 1.25rem; height: 1.25rem; fill: none; stroke: currentColor; stroke-
 .brand small { margin-top: 0.25rem; color: var(--yellow); font-size: 0.72rem; font-weight: 600; letter-spacing: 0.08em; }
 .topbar-actions { display: flex; align-items: center; gap: 0.6rem; }
 
+.account-chip { display: flex; min-height: 2.4rem; align-items: center; gap: .45rem; padding: .3rem; border: 1px solid var(--line); border-radius: 999px; background: rgba(255,255,255,.035); cursor: pointer; }
+.account-chip.has-account { border-color: rgba(181,145,255,.24); background: rgba(143,92,255,.08); }
+.account-initial { display: grid; width: 1.75rem; height: 1.75rem; place-items: center; border-radius: 50%; color: #171020; background: linear-gradient(135deg, var(--yellow), #efb92c); font-size: .66rem; font-weight: 800; }
+.account-chip-copy { display: none; padding-left: .35rem; text-align: right; }
+.account-chip-copy b, .account-chip-copy small { display: block; max-width: 7rem; overflow: hidden; line-height: 1.1; white-space: nowrap; text-overflow: ellipsis; }
+.account-chip-copy b { font-size: .62rem; }
+.account-chip-copy small { margin-top: .15rem; color: var(--muted); font-size: .48rem; direction: ltr; }
+
 .connection-chip {
   display: flex; align-items: center; gap: 0.5rem; min-height: 2.4rem; padding: 0.4rem 0.65rem;
   border: 1px solid var(--line); border-radius: 999px; background: rgba(255,255,255,0.035); cursor: pointer;
@@ -135,6 +143,26 @@ main { min-height: calc(100vh - 10rem); }
 .stat-strip strong, .stat-strip span { display: block; }
 .stat-strip strong { color: var(--yellow); font-size: 1.1rem; }
 .stat-strip span { margin-top: .2rem; color: var(--muted); font-size: .57rem; }
+
+.rooms-section { margin-bottom: 2.3rem; }
+.rooms-heading { align-items: center; padding-bottom: .35rem; }
+.rooms-lede { margin: 0 1.1rem .85rem; color: var(--muted); font-size: .65rem; line-height: 1.75; }
+.live-rooms-count { display: inline-flex; align-items: center; gap: .35rem; padding: .35rem .55rem; border: 1px solid rgba(85,219,169,.16); border-radius: 999px; color: var(--green); background: rgba(85,219,169,.06); font-size: .5rem; font-weight: 600; }
+.live-rooms-count i { width: .38rem; height: .38rem; border-radius: 50%; background: var(--green); box-shadow: 0 0 10px rgba(85,219,169,.6); }
+.room-directory { display: grid; padding: 0 1.1rem; gap: .7rem; }
+.rooms-empty { grid-column: 1 / -1; padding: 1.2rem; border: 1px dashed var(--line); border-radius: 1rem; color: var(--muted); background: rgba(255,255,255,.02); font-size: .62rem; text-align: center; }
+.room-card { padding: .85rem; border: 1px solid var(--line); border-radius: 1rem; background: linear-gradient(145deg, rgba(143,92,255,.065), rgba(255,255,255,.018)); box-shadow: 0 14px 38px rgba(0,0,0,.12); }
+.room-card-top { display: flex; align-items: start; justify-content: space-between; gap: .8rem; }
+.room-card-top h3 { margin: .22rem 0 0; font-size: .88rem; }
+.room-status { display: inline-flex; align-items: center; gap: .3rem; color: var(--purple-2); font-size: .5rem; }
+.room-status i { width: .34rem; height: .34rem; border-radius: 50%; background: var(--green); box-shadow: 0 0 8px rgba(85,219,169,.45); }
+.room-code-mini { padding: .28rem .45rem; border: 1px solid rgba(245,207,77,.16); border-radius: .42rem; color: var(--yellow); background: rgba(245,207,77,.05); font-family: ui-monospace, monospace; font-size: .48rem; direction: ltr; }
+.room-card-meta { display: flex; flex-wrap: wrap; gap: .7rem; margin: .7rem 0; color: var(--muted); font-size: .52rem; }
+.room-card-meta span { display: inline-flex; align-items: center; gap: .28rem; }
+.room-card-meta svg { width: .82rem; height: .82rem; }
+.room-card-actions { display: grid; grid-template-columns: 1fr 1.15fr; gap: .5rem; }
+.room-card-actions .button { min-height: 2.65rem; padding: .55rem; font-size: .62rem; }
+.room-card-actions svg { width: .9rem; height: .9rem; }
 
 .section-heading { display: flex; align-items: end; justify-content: space-between; padding: 0 1.1rem 1rem; }
 .section-heading span { color: var(--purple-2); font-size: .65rem; }
@@ -371,6 +399,28 @@ main { min-height: calc(100vh - 10rem); }
 .history-item .voters { display: flex; flex-wrap: wrap; gap: .3rem; margin-top: .55rem; }
 .history-item .voters span { padding: .22rem .4rem; border-radius: .4rem; color: var(--purple-2); background: rgba(143,92,255,.08); font-size: .49rem; }
 
+.spectator-list { display: grid; gap: .5rem; }
+.spectator-row { display: flex; align-items: center; gap: .6rem; padding: .6rem; border: 1px solid var(--line); border-radius: .75rem; background: rgba(255,255,255,.022); }
+.spectator-avatar { display: grid; width: 2.25rem; height: 2.25rem; flex: 0 0 auto; place-items: center; border-radius: .7rem; color: var(--purple-2); background: rgba(143,92,255,.12); font-size: .68rem; font-weight: 700; }
+.spectator-row > div { flex: 1; min-width: 0; }
+.spectator-row strong, .spectator-row small { display: block; }
+.spectator-row strong { font-size: .66rem; }
+.spectator-row small { margin-top: .12rem; color: var(--muted); font-size: .49rem; }
+.spectator-empty { padding: .8rem; border: 1px dashed var(--line); border-radius: .75rem; color: var(--muted); font-size: .57rem; text-align: center; }
+
+.spectator-banner { display: flex; align-items: center; gap: .6rem; margin: .75rem 1.1rem; padding: .7rem; border: 1px solid rgba(85,219,169,.18); border-radius: .9rem; color: var(--green); background: rgba(85,219,169,.055); }
+.spectator-banner > svg { width: 1.25rem; flex: 0 0 auto; }
+.spectator-banner > div { flex: 1; min-width: 0; }
+.spectator-banner strong, .spectator-banner small { display: block; }
+.spectator-banner strong { color: var(--ink); font-size: .66rem; }
+.spectator-banner small { margin-top: .15rem; color: var(--muted); font-size: .48rem; line-height: 1.5; }
+.spectator-banner button { min-height: 2rem; padding: .35rem .55rem; border: 1px solid var(--line); border-radius: .55rem; color: var(--muted); background: rgba(255,255,255,.035); font-size: .5rem; cursor: pointer; }
+.spectator-night { background: radial-gradient(circle at 15% 18%, rgba(143,92,255,.16), transparent 12rem), linear-gradient(140deg, #160f24, #0b0811); }
+.spectator-wait { display: grid; min-height: 9rem; margin-top: .8rem; place-items: center; align-content: center; gap: .3rem; border: 1px dashed rgba(181,145,255,.2); border-radius: 1rem; color: var(--purple-2); background: rgba(143,92,255,.035); text-align: center; }
+.spectator-wait svg { width: 1.7rem; height: 1.7rem; }
+.spectator-wait strong { color: var(--ink); font-size: .78rem; }
+.spectator-wait small { color: var(--muted); font-size: .52rem; }
+
 .empty-state { padding: 3rem 1.2rem; color: var(--muted); text-align: center; }
 .empty-state svg { width: 2.5rem; height: 2.5rem; color: var(--purple-2); }
 .empty-state h2 { margin: .7rem 0 .2rem; color: var(--ink); font-size: 1rem; }
@@ -431,6 +481,10 @@ dialog::backdrop { background: rgba(0,0,0,.74); backdrop-filter: blur(7px); }
 .sheet-dialog input:focus { border-color: rgba(143,92,255,.6); box-shadow: 0 0 0 3px rgba(143,92,255,.08); }
 .field-error { min-height: 1rem; margin: -.25rem 0 .4rem; color: var(--red); font-size: .56rem; }
 .safe-copy { display: block; margin-top: .7rem; color: var(--muted); font-size: .53rem; text-align: center; }
+.account-dialog { max-width: 40rem; }
+.account-fields { display: grid; gap: 0 .7rem; }
+.account-fields label { margin-top: 0; }
+#accountUsernameInput, #accountEmailInput, #accountPasswordInput { direction: ltr; text-align: left; }
 
 .role-dialog { width: calc(100% - 2rem); max-width: 24rem; padding: 0; border: 0; background: transparent; }
 .role-card { position: relative; overflow: hidden; padding: 1.8rem 1.2rem 1.2rem; border: 1px solid rgba(255,82,109,.22); border-radius: 1.25rem; background: radial-gradient(circle at 50% 12%, rgba(255,82,109,.15), transparent 13rem), #120b17; text-align: center; box-shadow: var(--shadow); }
@@ -457,6 +511,11 @@ dialog::backdrop { background: rgba(0,0,0,.74); backdrop-filter: blur(7px); }
   .topbar { border-radius: 1.5rem 1.5rem 0 0; }
   .bottom-nav, .game-tabs { right: 50%; left: auto; width: min(760px, 100vw); transform: translateX(50%); bottom: 1.5rem; border-radius: 0 0 1.5rem 1.5rem; }
   .hero-actions { grid-template-columns: 1fr 1fr; }
+  .account-chip-copy { display: block; }
+  .room-directory { grid-template-columns: repeat(3, minmax(0, 1fr)); padding-inline: 1.8rem; }
+  .rooms-heading, .rooms-lede { margin-inline: .7rem; }
+  .account-fields { grid-template-columns: 1fr 1fr; }
+  .account-password-field { grid-column: 1 / -1; }
   .how-grid { grid-template-columns: repeat(3, 1fr); }
   .how-card { padding: 5.2rem 1rem 1rem; }
   .how-card .step-icon { right: 1rem; }

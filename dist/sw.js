@@ -1,11 +1,11 @@
-const CACHE_NAME = "harat-almafia-v6";
+const CACHE_NAME = "harat-almafia-v9";
 const APP_SHELL = [
   "/",
   "/index.html",
-  "/styles.css?v=6",
-  "/js/app.js?v=6",
-  "/js/state.js?v=6",
-  "/js/services/mock-realtime.js?v=6",
+  "/styles.css?v=9",
+  "/js/app.js?v=9",
+  "/js/state.js?v=9",
+  "/js/services/mock-realtime.js?v=9",
   "/assets/mark.svg",
   "/manifest.webmanifest"
 ];

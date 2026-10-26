@@ -2,19 +2,20 @@ import {
   state,
   loadLocalState,
   saveOptions,
-  setPlayerName,
+  saveAccount,
   formatTime,
   resetForNight,
   startDay,
   startVote,
-} from "./state.js?v=6";
-import { realtime } from "./services/mock-realtime.js?v=6";
+} from "./state.js?v=9";
+import { realtime } from "./services/mock-realtime.js?v=9";
 
 const $ = (selector, scope = document) => scope.querySelector(selector);
 const $$ = (selector, scope = document) => [...scope.querySelectorAll(selector)];
 const gameContent = $("#gameContent");
 let gameTicker = null;
 let toastTimer = null;
+let pendingAccountAction = null;
 
 const icon = (name) => {
   const icons = {
@@ -30,6 +31,7 @@ const icon = (name) => {
     bot: '<svg viewBox="0 0 24 24"><rect x="4" y="7" width="16" height="13" rx="2"/><path d="M12 3v4M8 12h.01M16 12h.01M8 16h8"/></svg>',
     chat: '<svg viewBox="0 0 24 24"><path d="M21 15a4 4 0 01-4 4H8l-5 3V7a4 4 0 014-4h10a4 4 0 014 4v8Z"/></svg>',
     users: '<svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8ZM22 21v-2a4 4 0 00-3-3.9"/></svg>',
+    eye: '<svg viewBox="0 0 24 24"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="2.5"/></svg>',
   };
   return icons[name] || "";
 };
@@ -53,6 +55,81 @@ function showToast(message) {
   toastTimer = window.setTimeout(() => toast.classList.remove("is-visible"), 2300);
 }
 
+function renderAccountChip() {
+  const account = state.account;
+  $("#accountInitial").textContent = account?.displayName?.charAt(0) || "؟";
+  $("#accountLabel").textContent = account ? account.displayName : "حساب لاعب";
+  $("#accountSublabel").textContent = account ? `@${account.username}` : "مطلوب للعب";
+  $("#accountButton").classList.toggle("has-account", Boolean(account));
+}
+
+function openAccountDialog(afterSave = null) {
+  pendingAccountAction = afterSave;
+  const account = state.account;
+  $("#accountDialogTitle").textContent = account ? "تعديل حساب اللاعب" : "إنشاء حساب لاعب";
+  $("#saveAccountButton").textContent = account ? "حفظ التعديلات" : "إنشاء الحساب والمتابعة";
+  $("#accountNameInput").value = account?.displayName || "";
+  $("#accountUsernameInput").value = account?.username || "";
+  $("#accountEmailInput").value = account?.email || "";
+  $("#accountBirthInput").value = account?.birthDate || "";
+  $("#accountPasswordInput").value = "";
+  $("#accountPasswordInput").required = !account;
+  $("#accountError").textContent = "";
+  $("#accountDialog").showModal();
+}
+
+function requireAccount(action) {
+  if (state.account) {
+    action();
+    return;
+  }
+  openAccountDialog(action);
+}
+
+function selectRoom(roomId) {
+  const room = state.rooms.find((item) => item.id === roomId) || state.rooms[0];
+  state.activeRoomId = room.id;
+  state.options.privateRoom = Boolean(room.private);
+  $("#roomCode").textContent = room.code;
+  return room;
+}
+
+function joinRoomAsPlayer(roomId) {
+  const room = selectRoom(roomId);
+  state.spectator = false;
+  navigate("lobby");
+  showToast(`انضممت لاعباً إلى ${room.name}`);
+}
+
+function watchRoom(roomId) {
+  const room = selectRoom(roomId);
+  if (room.private) {
+    showToast("هذه الغرفة خاصة ولا تسمح بالمشاهدة");
+    return;
+  }
+  state.spectator = true;
+  state.currentTab = "arena";
+  if (room.phase === "night") resetForNight();
+  else startDay();
+  navigate("game");
+  showToast(`تشاهد ${room.name} كضيف بلا حساب`);
+}
+
+function renderRoomDirectory() {
+  const directory = $("#roomDirectory");
+  if (!directory) return;
+  const publicRooms = state.rooms.filter((room) => !room.private);
+  $("#liveRoomsCount").textContent = `${publicRooms.length} غرف`;
+  directory.innerHTML = publicRooms.length ? publicRooms.map((room) => {
+    const full = room.players >= room.capacity;
+    return `<article class="room-card">
+      <div class="room-card-top"><div><span class="room-status"><i></i>${escapeHtml(room.status)}</span><h3>${escapeHtml(room.name)}</h3></div><span class="room-code-mini">${escapeHtml(room.code)}</span></div>
+      <div class="room-card-meta"><span>${icon("users")} ${room.players} / ${room.capacity} لاعبين</span><span>${icon("eye")} ${room.spectators} مشاهدين</span></div>
+      <div class="room-card-actions"><button class="button button-secondary" data-watch-room="${room.id}" type="button">${icon("eye")} مشاهدة</button><button class="button button-primary" data-join-room="${room.id}" type="button" ${full ? "disabled" : ""}>${full ? "مكتملة" : "انضم لاعباً"}</button></div>
+    </article>`;
+  }).join("") : '<div class="rooms-empty">لا توجد غرف عامة الآن. يمكنك إنشاء غرفة جديدة.</div>';
+}
+
 function navigate(route) {
   state.route = route;
   $$(".view").forEach((view) => view.classList.toggle("is-active", view.dataset.view === route));
@@ -68,7 +145,6 @@ function navigate(route) {
 }
 
 function renderLobby() {
-  const me = state.players.find((player) => player.id === "me");
   $("#lobbyPlayers").innerHTML = state.players.map((player) => `
     <div class="player-row" data-player-id="${player.id}">
       ${avatar(player)}
@@ -81,7 +157,15 @@ function renderLobby() {
   $("#startGameButton").disabled = state.players.length < 5;
   $("#cupidToggle").checked = state.options.cupid;
   $("#witchToggle").checked = state.options.witch;
-  $("#playerNameInput").value = me.name;
+  $("#privateRoomToggle").checked = state.options.privateRoom;
+  $("#spectatorCount").textContent = state.spectators.length;
+  $("#spectatorList").innerHTML = state.spectators.length ? state.spectators.map((spectator) => `
+    <div class="spectator-row">
+      <span class="spectator-avatar">${escapeHtml(spectator.name.charAt(0))}</span>
+      <div><strong>${escapeHtml(spectator.name)}</strong><small>${spectator.guest ? "ضيف بلا حساب" : "مشاهد مسجّل"}</small></div>
+      <button class="kick-button" data-kick-spectator="${spectator.id}" aria-label="إخراج ${escapeHtml(spectator.name)} من الغرفة"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+  `).join("") : '<div class="spectator-empty">لا يشاهد الغرفة أحد الآن.</div>';
 }
 
 function openDrawer() {
@@ -168,21 +252,28 @@ function renderGame() {
   $("#phaseIcon").innerHTML = icon(current.icon);
   $("#timerValue").textContent = formatTime(state.phaseRemaining);
   $$("[data-game-tab]").forEach((button) => button.classList.toggle("is-active", button.dataset.gameTab === state.currentTab));
-  $("#chatBadge").textContent = state.phase === "night" ? state.messages.mafia.length : state.players.find((p) => p.id === "me").alive ? "•" : state.messages.dead.length;
+  $("#chatBadge").textContent = state.spectator ? "•" : state.phase === "night" ? state.messages.mafia.length : state.players.find((p) => p.id === "me").alive ? "•" : state.messages.dead.length;
 
+  let content = "";
   if (state.currentTab === "arena") {
-    gameContent.innerHTML = state.phase === "night" ? nightTemplate() : state.phase === "day" ? dayTemplate() : state.phase === "defense" ? defenseTemplate() : voteTemplate();
+    content = state.phase === "night" ? nightTemplate() : state.phase === "day" ? dayTemplate() : state.phase === "defense" ? defenseTemplate() : voteTemplate();
   } else if (state.currentTab === "players") {
-    gameContent.innerHTML = playersTemplate();
+    content = playersTemplate();
   } else if (state.currentTab === "chat") {
-    gameContent.innerHTML = chatTabTemplate();
+    content = chatTabTemplate();
   } else {
-    gameContent.innerHTML = historyTemplate();
+    content = historyTemplate();
   }
+  const activeRoom = state.rooms.find((room) => room.id === state.activeRoomId);
+  const spectatorNotice = state.spectator ? `<div class="spectator-banner">${icon("eye")}<div><strong>أنت تشاهد ${escapeHtml(activeRoom?.name || "الغرفة")}</strong><small>دخول بلا حساب · لا صوت ولا تصويت ولا وصول إلى أسرار الأدوار</small></div><button data-route="home" type="button">خروج</button></div>` : "";
+  gameContent.innerHTML = spectatorNotice + content;
   updateTimers();
 }
 
 function nightTemplate() {
+  if (state.spectator) {
+    return `<div class="game-stage"><section class="stage-hero spectator-night"><span class="mock-flag">معلومات محجوبة</span><div class="eyebrow"><span></span> الليل جارٍ</div><h1>الحارة نائمة</h1><p>أنت تشاهد فقط. اختيارات الأدوار وقنوات المافيا السرية مخفية حتى لا تنكشف اللعبة.</p></section><div class="spectator-wait">${icon("lock")}<strong>ننتظر شروق النهار</strong><small>ستنتقل المشاهدة تلقائياً عند انتهاء المرحلة.</small></div></div>`;
+  }
   const targets = state.players.filter((player) => !["me", "noor"].includes(player.id) && player.alive);
   const targetName = state.selectedTarget ? state.players.find((player) => player.id === state.selectedTarget)?.name : "";
   return `
@@ -214,8 +305,8 @@ function nightTemplate() {
 
 function dayTemplate() {
   const queue = state.speechQueue.map((id) => state.players.find((player) => player.id === id)).filter(Boolean);
-  const isMyTurn = state.speaker?.id === "me";
-  const requestDisabled = Boolean(state.speaker?.id === "me");
+  const isMyTurn = !state.spectator && state.speaker?.id === "me";
+  const requestDisabled = state.spectator || Boolean(state.speaker?.id === "me");
   return `
     <div class="game-stage">
       <section class="stage-hero">
@@ -232,12 +323,12 @@ function dayTemplate() {
         ${state.speaker ? `<button class="self-stop ${isMyTurn ? "" : "is-locked"}" data-action="self-stop" ${isMyTurn ? "" : "disabled"}>${isMyTurn ? "إنهاء مداخلتي وتمرير الدور" : `التحكم لدى ${escapeHtml(state.speaker.name)} وحده`}</button>` : ""}
       </div>
       <div class="voice-bar">
-        <div>${icon(state.micOn ? "mic" : "micOff")}<span><strong>${state.speaker && !isMyTurn ? `الدور عند ${escapeHtml(state.speaker.name)}` : `ميكروفونك ${state.micOn ? "مفتوح" : "مكتوم"}`}</strong><small>${state.speaker && !isMyTurn ? "لا يمكن للمضيف أو غيره قطع المداخلة" : "التحكم بيدك · واجهة بلا بث"}</small></span></div>
-        <button class="mic-button ${state.micOn ? "" : "is-muted"}" data-action="toggle-mic" aria-label="تبديل الميكروفون" ${state.speaker && !isMyTurn ? "disabled" : ""}>${icon(state.micOn ? "mic" : "micOff")}</button>
+        <div>${icon(state.spectator ? "eye" : state.micOn ? "mic" : "micOff")}<span><strong>${state.spectator ? "وضع المشاهدة" : state.speaker && !isMyTurn ? `الدور عند ${escapeHtml(state.speaker.name)}` : `ميكروفونك ${state.micOn ? "مفتوح" : "مكتوم"}`}</strong><small>${state.spectator ? "يمكنك الاستماع فقط ولا تحتاج إلى حساب" : state.speaker && !isMyTurn ? "لا يمكن للمضيف أو غيره قطع المداخلة" : "التحكم بيدك · واجهة بلا بث"}</small></span></div>
+        <button class="mic-button ${state.micOn ? "" : "is-muted"}" data-action="toggle-mic" aria-label="تبديل الميكروفون" ${state.spectator || state.speaker && !isMyTurn ? "disabled" : ""}>${icon(state.micOn ? "mic" : "micOff")}</button>
       </div>
       <div class="section-label"><h2>طابور المتحدثين</h2><span>${queue.length} في الانتظار</span></div>
       <div class="queue-list">${queue.length ? queue.map((player, index) => `<div class="queue-item">${avatar(player)}<strong>${escapeHtml(player.name)}${player.id === "me" ? " (أنت)" : ""}</strong><b>#${index + 1}</b></div>`).join("") : '<div class="queue-empty">لا أحد ينتظر الآن</div>'}</div>
-      <button class="button ${state.requestedToSpeak || isMyTurn ? "button-secondary" : "button-primary"} full" data-action="request-speech" type="button" ${requestDisabled ? "disabled" : ""}>${isMyTurn ? "أنت تتحدث الآن" : state.requestedToSpeak ? "إلغاء طلبي من الطابور" : "طلب الكلام والبدء تلقائياً"}</button>
+      <button class="button ${state.requestedToSpeak || isMyTurn ? "button-secondary" : "button-primary"} full" data-action="request-speech" type="button" ${requestDisabled ? "disabled" : ""}>${state.spectator ? "المشاهدة فقط — لا يمكن طلب الكلام" : isMyTurn ? "أنت تتحدث الآن" : state.requestedToSpeak ? "إلغاء طلبي من الطابور" : "طلب الكلام والبدء تلقائياً"}</button>
       <div class="automation-note">${icon("users")}<p><strong>طابور آلي بالكامل.</strong> لا يختار المضيف المتحدث ولا ينهي مداخلته. ينتقل الدور عند ضغط المتحدث على الإنهاء أو انتهاء وقته.</p></div>
     </div>`;
 }
@@ -245,7 +336,7 @@ function dayTemplate() {
 function defenseTemplate() {
   const candidate = state.players.find((player) => player.id === state.defenseCandidates[state.defenseIndex]);
   if (!candidate) return '<div class="empty-state"><h2>انتهت الدفاعات</h2><p>تبدأ إعادة التصويت الآن.</p></div>';
-  const isMyDefense = candidate.id === "me";
+  const isMyDefense = !state.spectator && candidate.id === "me";
   return `
     <div class="game-stage">
       <section class="stage-hero defense-hero">
@@ -290,11 +381,11 @@ function voteTemplate() {
         ${candidates.map((player) => {
           const count = state.votes[player.id] || 0;
           const percent = Math.round((count / totalVotes) * 100);
-          return `<button class="vote-row ${state.myVote === player.id ? "is-my-vote" : ""} ${state.voteConfirmed ? "is-locked" : ""}" style="--vote-width:${percent}%" data-vote="${player.id}" ${state.voteClosed || state.voteConfirmed ? "disabled" : ""}>${avatar(player)}<div><strong>${escapeHtml(player.name)}</strong><small>${state.voteClosed && state.revealVoters ? voteIdentities(player.id) : state.voteConfirmed && state.myVote === player.id ? "تم تأكيد صوتك" : "هويات المصوّتين مخفية"}</small></div><b class="vote-count">${count} ${count === 1 ? "صوت" : "أصوات"}</b></button>`;
+          return `<button class="vote-row ${state.myVote === player.id ? "is-my-vote" : ""} ${state.voteConfirmed ? "is-locked" : ""}" style="--vote-width:${percent}%" data-vote="${player.id}" ${state.spectator || state.voteClosed || state.voteConfirmed ? "disabled" : ""}>${avatar(player)}<div><strong>${escapeHtml(player.name)}</strong><small>${state.voteClosed && state.revealVoters ? voteIdentities(player.id) : state.voteConfirmed && state.myVote === player.id ? "تم تأكيد صوتك" : "هويات المصوّتين مخفية"}</small></div><b class="vote-count">${count} ${count === 1 ? "صوت" : "أصوات"}</b></button>`;
         }).join("")}
       </div>
-      <p class="vote-note">${state.voteClosed ? "أُغلق الصندوق وكُشفت هويات المصوّتين." : "يمكنك تغيير اختيارك قبل التأكيد. بعد التأكيد يصبح صوتك نهائياً."}</p>
-      ${!state.voteClosed ? `<div class="confirmation-panel ${state.voteConfirmed ? "is-complete" : ""}"><div class="confirmation-copy"><span class="confirmation-icon">${state.voteConfirmed ? "✓" : icon("vote")}</span><div><strong>${state.voteConfirmed ? "تم تأكيد صوتك" : state.myVote ? `اختيارك: ${escapeHtml(state.players.find((p) => p.id === state.myVote)?.name || "")}` : "اختر مرشحاً ثم أكّد"}</strong><small>${state.voteConfirmed ? "اكتملت التأكيدات؛ يُغلق الصندوق تلقائياً." : `${state.voteConfirmations} لاعبين أكدوا. لن ننتظر نهاية الوقت بعد تأكيدك.`}</small></div></div><div class="confirmation-progress"><span style="--confirmed:${state.voteConfirmed ? 100 : confirmationPercent}%"></span></div><div class="confirmation-footer"><b>${state.voteConfirmed ? aliveCount : state.voteConfirmations} من ${aliveCount} أكدوا</b><button class="button button-primary" data-action="confirm-vote" ${!state.myVote || state.voteConfirmed ? "disabled" : ""}>${state.voteConfirmed ? "تم التأكيد" : "تأكيد صوتي"}</button></div></div>` : ""}
+      <p class="vote-note">${state.voteClosed ? "أُغلق الصندوق وكُشفت هويات المصوّتين." : state.spectator ? "ترى عدد الأصوات مباشرة، لكن المشاهدة لا تسمح لك بالتصويت." : "يمكنك تغيير اختيارك قبل التأكيد. بعد التأكيد يصبح صوتك نهائياً."}</p>
+      ${!state.spectator && !state.voteClosed ? `<div class="confirmation-panel ${state.voteConfirmed ? "is-complete" : ""}"><div class="confirmation-copy"><span class="confirmation-icon">${state.voteConfirmed ? "✓" : icon("vote")}</span><div><strong>${state.voteConfirmed ? "تم تأكيد صوتك" : state.myVote ? `اختيارك: ${escapeHtml(state.players.find((p) => p.id === state.myVote)?.name || "")}` : "اختر مرشحاً ثم أكّد"}</strong><small>${state.voteConfirmed ? "اكتملت التأكيدات؛ يُغلق الصندوق تلقائياً." : `${state.voteConfirmations} لاعبين أكدوا. لن ننتظر نهاية الوقت بعد تأكيدك.`}</small></div></div><div class="confirmation-progress"><span style="--confirmed:${state.voteConfirmed ? 100 : confirmationPercent}%"></span></div><div class="confirmation-footer"><b>${state.voteConfirmed ? aliveCount : state.voteConfirmations} من ${aliveCount} أكدوا</b><button class="button button-primary" data-action="confirm-vote" ${!state.myVote || state.voteConfirmed ? "disabled" : ""}>${state.voteConfirmed ? "تم التأكيد" : "تأكيد صوتي"}</button></div></div>` : ""}
       ${state.voteClosed ? resultTemplate(result) : ""}
       <div class="automation-note">${icon("shield")}<p><strong>لا إغلاق يدوي للصندوق.</strong> يُغلق تلقائياً عند تأكيد الجميع أو انتهاء الـ60 ثانية.</p></div>
     </div>`;
@@ -316,7 +407,7 @@ function playersTemplate() {
     <div class="roster-grid">
       ${state.players.map((player) => `<div class="roster-card ${player.alive ? "" : "is-dead"} ${player.id === "me" && state.botActive ? "is-bot" : ""}">${avatar(player)}<div><strong>${escapeHtml(player.name)}${player.host ? " · مضيف" : ""}</strong><small>${player.alive ? (player.id === "me" && state.botActive ? "الروبوت يلعب مؤقتاً" : "حيّ · متصل") : "مُقصى · نص فقط"}</small></div></div>`).join("")}
     </div>
-    <div class="game-stage">
+    ${state.spectator ? "" : `<div class="game-stage">
       <div class="host-controls">
         <div class="host-controls-head"><strong>تجربة حالات النظام</strong><span>أدوات المضيف مستمرة دائماً</span></div>
         <div class="host-controls-actions">
@@ -324,10 +415,13 @@ function playersTemplate() {
           <button class="small-button" data-action="toggle-connection">${state.botActive ? "محاكاة عودتي" : "محاكاة انقطاعي"}</button>
         </div>
       </div>
-    </div>`;
+    </div>`}`;
 }
 
 function chatTabTemplate() {
+  if (state.spectator) {
+    return `<div class="empty-state">${icon("eye")}<h2>مشاهدة بلا محادثة</h2><p>يمكن للضيف متابعة الغرفة العامة بلا حساب، لكن لا يمكنه الكتابة أو دخول قنوات الأدوار السرية.</p></div>`;
+  }
   const me = state.players.find((player) => player.id === "me");
   if (!me.alive) {
     return `<div class="game-stage"><section class="stage-hero"><div class="eyebrow"><span></span> مقاعد المتفرجين</div><h1>محادثة الموتى</h1><p>نص فقط. لا يمكنك العودة إلى القنوات الصوتية أو التأثير في اللاعبين الأحياء.</p></section><div class="section-label"><h2>الرسائل</h2><span>لا يراها الأحياء</span></div>${channelTemplate("dead")}</div>`;
@@ -470,6 +564,10 @@ function finishCurrentSpeech(fromTimer = false) {
 }
 
 function handleGameAction(action, target) {
+  if (state.spectator && ["toggle-mic", "request-speech", "self-stop", "confirm-night", "confirm-vote", "begin-defense", "finish-defense", "toggle-death", "toggle-connection"].includes(action)) {
+    showToast("وضع المشاهدة للمتابعة فقط");
+    return;
+  }
   if (action === "toggle-mic") {
     if (state.speaker && state.speaker.id !== "me") return;
     state.micOn = !state.micOn;
@@ -564,7 +662,17 @@ function toggleConnection() {
 function bindEvents() {
   document.addEventListener("click", (event) => {
     const routeButton = event.target.closest("[data-route]");
-    if (routeButton) navigate(routeButton.dataset.route);
+    if (routeButton) {
+      const route = routeButton.dataset.route;
+      if (route === "lobby") requireAccount(() => { state.spectator = false; navigate("lobby"); });
+      else navigate(route);
+    }
+
+    const watchButton = event.target.closest("[data-watch-room]");
+    if (watchButton) watchRoom(watchButton.dataset.watchRoom);
+
+    const joinButton = event.target.closest("[data-join-room]");
+    if (joinButton && !joinButton.disabled) requireAccount(() => joinRoomAsPlayer(joinButton.dataset.joinRoom));
 
     const tabButton = event.target.closest("[data-game-tab]");
     if (tabButton) {
@@ -573,14 +681,14 @@ function bindEvents() {
     }
 
     const targetButton = event.target.closest("[data-target]");
-    if (targetButton && !state.nightChoiceConfirmed) {
+    if (targetButton && !state.spectator && !state.nightChoiceConfirmed) {
       state.selectedTarget = targetButton.dataset.target;
       showToast(`اختيار مبدئي: ${state.players.find((p) => p.id === state.selectedTarget).name} — أكّد للمتابعة`);
       renderGame();
     }
 
     const voteButton = event.target.closest("[data-vote]");
-    if (voteButton && !state.voteClosed && !state.voteConfirmed) {
+    if (voteButton && !state.spectator && !state.voteClosed && !state.voteConfirmed) {
       state.myVote = voteButton.dataset.vote;
       renderGame();
     }
@@ -593,22 +701,75 @@ function bindEvents() {
   $("#closeMenuButton").addEventListener("click", closeDrawer);
   $("#scrim").addEventListener("click", closeDrawer);
   $("#connectionChip").addEventListener("click", () => { toggleConnection(); if (state.route === "game") renderGame(); });
+  $("#accountButton").addEventListener("click", () => openAccountDialog());
 
-  $("#createRoomButton").addEventListener("click", () => {
-    $("#roomCode").textContent = `MAF-${Math.floor(100 + Math.random() * 899)}`;
-    navigate("lobby");
-    showToast("أُنشئت غرفة تجريبية على هذا الجهاز");
-  });
-  $("#joinRoomButton").addEventListener("click", () => $("#joinDialog").showModal());
-  $("#joinForm").addEventListener("submit", (event) => {
+  $("#accountForm").addEventListener("submit", (event) => {
     event.preventDefault();
-    const name = $("#playerNameInput").value.trim();
-    const code = $("#roomCodeInput").value.trim().toUpperCase();
-    if (name.length < 2 || code.length < 4) {
-      $("#joinError").textContent = "اكتب اسماً ورمز غرفة صالحاً (جرّب MAF-728).";
+    const displayName = $("#accountNameInput").value.trim();
+    const username = $("#accountUsernameInput").value.trim();
+    const emailInput = $("#accountEmailInput");
+    const email = emailInput.value.trim();
+    const birthDate = $("#accountBirthInput").value;
+    const password = $("#accountPasswordInput").value;
+    const today = new Date().toISOString().slice(0, 10);
+    let error = "";
+    if (displayName.length < 2) error = "اكتب اسماً ظاهراً من حرفين على الأقل.";
+    else if (username.length < 3 || /\s/.test(username)) error = "اسم المستخدم يجب أن يكون 3 أحرف على الأقل ومن دون مسافات.";
+    else if (!emailInput.validity.valid || !email) error = "اكتب بريداً إلكترونياً صالحاً.";
+    else if (!birthDate || birthDate >= today) error = "اختر تاريخ ميلاد صحيحاً.";
+    else if (!state.account && password.length < 8) error = "كلمة المرور يجب أن تتكون من 8 أحرف على الأقل.";
+    else if (state.account && password && password.length < 8) error = "كلمة المرور الجديدة يجب أن تتكون من 8 أحرف على الأقل.";
+    if (error) {
+      $("#accountError").textContent = error;
       return;
     }
-    setPlayerName(name);
+    saveAccount({ displayName, username, email, birthDate });
+    $("#accountDialog").close();
+    renderAccountChip();
+    renderLobby();
+    showToast("تم حفظ حساب اللاعب محلياً");
+    const action = pendingAccountAction;
+    pendingAccountAction = null;
+    if (action) window.setTimeout(action, 180);
+  });
+
+  $("#createRoomButton").addEventListener("click", () => {
+    requireAccount(() => {
+      state.spectator = false;
+      const code = `MAF-${Math.floor(100 + Math.random() * 899)}`;
+      const room = {
+        id: `local-${Date.now()}`,
+        name: `غرفة ${state.account.displayName}`,
+        code,
+        status: "بانتظار اللاعبين",
+        phase: "day",
+        players: state.players.length,
+        capacity: 20,
+        spectators: 0,
+        private: state.options.privateRoom,
+      };
+      state.rooms.unshift(room);
+      state.activeRoomId = room.id;
+      $("#roomCode").textContent = code;
+      renderRoomDirectory();
+      navigate("lobby");
+      showToast("أُنشئت غرفة تجريبية على هذا الجهاز");
+    });
+  });
+  $("#joinRoomButton").addEventListener("click", () => requireAccount(() => $("#joinDialog").showModal()));
+  $("#joinForm").addEventListener("submit", (event) => {
+    event.preventDefault();
+    const code = $("#roomCodeInput").value.trim().toUpperCase();
+    if (!/^MAF-[0-9]{3}$/.test(code)) {
+      $("#joinError").textContent = "اكتب رمز غرفة صالحاً (جرّب MAF-728).";
+      return;
+    }
+    state.spectator = false;
+    const matchingRoom = state.rooms.find((room) => room.code === code);
+    if (matchingRoom) {
+      state.activeRoomId = matchingRoom.id;
+      state.options.privateRoom = Boolean(matchingRoom.private);
+    }
     $("#roomCode").textContent = code;
     $("#joinDialog").close();
     $("#joinError").textContent = "";
@@ -634,12 +795,30 @@ function bindEvents() {
   $("#lobbyPlayers").addEventListener("click", (event) => {
     const kick = event.target.closest("[data-kick]");
     if (!kick) return;
+    const removed = state.players.find((player) => player.id === kick.dataset.kick);
     state.players = state.players.filter((player) => player.id !== kick.dataset.kick);
     renderLobby();
+    showToast(`أخرج المضيف ${removed?.name || "اللاعب"} من الغرفة`);
+  });
+  $("#spectatorList").addEventListener("click", (event) => {
+    const kick = event.target.closest("[data-kick-spectator]");
+    if (!kick) return;
+    const removed = state.spectators.find((spectator) => spectator.id === kick.dataset.kickSpectator);
+    state.spectators = state.spectators.filter((spectator) => spectator.id !== kick.dataset.kickSpectator);
+    renderLobby();
+    showToast(`أخرج المضيف ${removed?.name || "المشاهد"} من الغرفة`);
   });
   $("#cupidToggle").addEventListener("change", (event) => { state.options.cupid = event.target.checked; saveOptions(); showToast(state.options.cupid ? "أُضيف كيوبيد إلى التوزيع" : "أُزيل كيوبيد"); });
   $("#witchToggle").addEventListener("change", (event) => { state.options.witch = event.target.checked; saveOptions(); showToast(state.options.witch ? "أُضيفت الساحرة إلى التوزيع" : "أُزيلت الساحرة"); });
-  $("#startGameButton").addEventListener("click", () => $("#roleDialog").showModal());
+  $("#privateRoomToggle").addEventListener("change", (event) => {
+    state.options.privateRoom = event.target.checked;
+    const activeRoom = state.rooms.find((room) => room.id === state.activeRoomId);
+    if (activeRoom) activeRoom.private = state.options.privateRoom;
+    saveOptions();
+    renderRoomDirectory();
+    showToast(state.options.privateRoom ? "أصبحت الغرفة خاصة ومخفية عن المشاهدين" : "أصبحت الغرفة عامة وقابلة للمشاهدة");
+  });
+  $("#startGameButton").addEventListener("click", () => requireAccount(() => $("#roleDialog").showModal()));
   $("#enterGameButton").addEventListener("click", () => {
     $("#roleDialog").close();
     resetForNight();
@@ -650,6 +829,7 @@ function bindEvents() {
     const form = event.target.closest("[data-chat-form]");
     if (!form) return;
     event.preventDefault();
+    if (state.spectator) return showToast("المشاهدة لا تسمح بإرسال الرسائل");
     const input = form.elements.message;
     const body = input.value.trim();
     if (!body) return;
@@ -672,6 +852,8 @@ function bindEvents() {
 
 loadLocalState();
 bindEvents();
+renderAccountChip();
+renderRoomDirectory();
 renderLobby();
 const demoPhase = new URLSearchParams(window.location.search).get("demo");
 if (demoPhase === "vote") {
