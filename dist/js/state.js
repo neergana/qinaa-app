@@ -1,0 +1,110 @@
+export const initialPlayers = [
+  { id: "me", name: "سامي", initial: "س", accent: "a1", host: true, alive: true, connected: true, role: "مافيا" },
+  { id: "noor", name: "نور", initial: "ن", accent: "a2", alive: true, connected: true, role: "مافيا" },
+  { id: "layan", name: "ليان", initial: "ل", accent: "a3", alive: true, connected: true, role: "طبيبة" },
+  { id: "omar", name: "عمر", initial: "ع", accent: "a4", alive: true, connected: true, role: "محقق" },
+  { id: "mariam", name: "مريم", initial: "م", accent: "a5", alive: true, connected: true, role: "مواطنة" },
+  { id: "youssef", name: "يوسف", initial: "ي", accent: "a6", alive: true, connected: true, role: "مواطن" },
+  { id: "salma", name: "سلمى", initial: "س", accent: "a2", alive: true, connected: true, role: "مواطنة" },
+  { id: "ziad", name: "زياد", initial: "ز", accent: "a3", alive: true, connected: true, role: "مواطن" },
+];
+
+export const state = {
+  route: "home",
+  players: structuredClone(initialPlayers),
+  options: { cupid: false, witch: false },
+  connected: true,
+  botActive: false,
+  currentTab: "arena",
+  phase: "night",
+  round: 1,
+  phaseSeconds: 75,
+  phaseRemaining: 75,
+  selectedTarget: null,
+  micOn: false,
+  requestedToSpeak: false,
+  speaker: null,
+  speakerIndex: 0,
+  speakerRemaining: 0,
+  discussionRemaining: 240,
+  voteRemaining: 60,
+  voteRound: 1,
+  voteClosed: false,
+  myVote: null,
+  votes: { omar: 2, youssef: 1, mariam: 1 },
+  revealVoters: false,
+  messages: {
+    mafia: [
+      { id: 1, sender: "نور", initial: "ن", accent: "a2", body: "أقترح عمر، أسئلته كثيرة منذ البداية.", time: "الآن", mine: false },
+      { id: 2, sender: "سامي", initial: "س", accent: "a1", body: "راقبي تصويت مريم أولاً، ثم نقرر.", time: "الآن", mine: true },
+    ],
+    dead: [
+      { id: 1, sender: "عمر", initial: "ع", accent: "a4", body: "كنت قريباً جداً من كشفهما!", time: "الجولة الماضية", mine: false },
+    ],
+  },
+  history: [
+    { round: 0, title: "تصويت تجريبي سابق", result: "لم يُقصَ أحد بعد استمرار التعادل.", voters: ["سامي ← عمر", "نور ← مريم", "عمر ← مريم", "مريم ← عمر"], tie: true },
+  ],
+};
+
+export function setPlayerName(name) {
+  const player = state.players.find((item) => item.id === "me");
+  player.name = name;
+  player.initial = name.trim().charAt(0) || "س";
+  localStorage.setItem("mafia-player-name", name);
+}
+
+export function loadLocalState() {
+  const name = localStorage.getItem("mafia-player-name");
+  if (name) setPlayerName(name);
+  try {
+    const options = JSON.parse(localStorage.getItem("mafia-room-options") || "null");
+    if (options) state.options = { ...state.options, ...options };
+  } catch (_) {
+    // Keep safe defaults when local browser data is malformed.
+  }
+}
+
+export function saveOptions() {
+  localStorage.setItem("mafia-room-options", JSON.stringify(state.options));
+}
+
+export function formatTime(totalSeconds) {
+  const safe = Math.max(0, totalSeconds);
+  const minutes = Math.floor(safe / 60).toString().padStart(2, "0");
+  const seconds = (safe % 60).toString().padStart(2, "0");
+  return `${minutes}:${seconds}`;
+}
+
+export function resetForNight() {
+  state.phase = "night";
+  state.phaseSeconds = 75;
+  state.phaseRemaining = 75;
+  state.currentTab = "arena";
+  state.selectedTarget = null;
+  state.micOn = false;
+}
+
+export function startDay() {
+  state.phase = "day";
+  state.phaseSeconds = 240;
+  state.phaseRemaining = 240;
+  state.discussionRemaining = 240;
+  state.currentTab = "arena";
+  state.speaker = null;
+  state.speakerRemaining = 0;
+  state.requestedToSpeak = false;
+  state.micOn = false;
+}
+
+export function startVote(isRevote = false) {
+  state.phase = "vote";
+  state.phaseSeconds = 60;
+  state.phaseRemaining = 60;
+  state.voteRemaining = 60;
+  state.voteClosed = false;
+  state.revealVoters = false;
+  state.myVote = null;
+  state.votes = isRevote ? { omar: 2, mariam: 2 } : { omar: 2, youssef: 1, mariam: 1 };
+  state.currentTab = "arena";
+}

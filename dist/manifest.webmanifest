@@ -1,0 +1,19 @@
+{
+  "name": "حارة المافيا",
+  "short_name": "المافيا",
+  "description": "لعبة استنتاج اجتماعي عربية للهاتف.",
+  "lang": "ar",
+  "dir": "rtl",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#09060f",
+  "theme_color": "#0c0814",
+  "icons": [
+    {
+      "src": "/assets/mark.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

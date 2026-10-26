@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0c0814" />
+    <meta name="description" content="حارة المافيا — لعبة استنتاج اجتماعي عربية للمتصفح والهاتف." />
+    <title>حارة المافيا</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/assets/mark.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="ambient ambient-one"></div>
+    <div class="ambient ambient-two"></div>
+
+    <div id="app" class="app-shell">
+      <header class="topbar">
+        <button class="brand" data-route="home" aria-label="العودة إلى الرئيسية">
+          <span class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 44 44" role="img"><path d="M11 30c4-2 5-8 5-13 3 2 5 2 8 0 0 6 2 11 9 13-6 5-16 5-22 0Z"/><path d="M13 13c3 0 5-2 6-5 2 4 5 5 9 3-1 4 1 7 5 9-8 2-15-1-20-7Z"/></svg>
+          </span>
+          <span><strong>حارة</strong><small>المافيا</small></span>
+        </button>
+        <div class="topbar-actions">
+          <button id="connectionChip" class="connection-chip" type="button" title="تبديل حالة الاتصال التجريبية">
+            <span class="status-dot"></span>
+            <span class="connection-copy"><b>متصل</b><small>محاكاة محلية</small></span>
+          </button>
+          <button class="icon-button" id="menuButton" type="button" aria-label="فتح القائمة" aria-expanded="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+          </button>
+        </div>
+      </header>
+
+      <main>
+        <section class="view is-active" data-view="home">
+          <div class="hero-card">
+            <div class="eyebrow"><span></span> اللعبة الاجتماعية العربية</div>
+            <div class="hero-mark" aria-hidden="true">
+              <span class="hero-ring"></span>
+              <svg viewBox="0 0 44 44"><path d="M11 30c4-2 5-8 5-13 3 2 5 2 8 0 0 6 2 11 9 13-6 5-16 5-22 0Z"/><path d="M13 13c3 0 5-2 6-5 2 4 5 5 9 3-1 4 1 7 5 9-8 2-15-1-20-7Z"/></svg>
+            </div>
+            <h1>من يختبئ<br /><em>بين أهل الحارة؟</em></h1>
+            <p>خداع، حدس، وتحالفات لا تدوم. اجمع رفاقك واكتشف المافيا قبل أن تسيطر على المدينة.</p>
+            <div class="hero-actions">
+              <button class="button button-primary button-large" id="createRoomButton" type="button">
+                <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+                إنشاء غرفة
+              </button>
+              <button class="button button-secondary button-large" id="joinRoomButton" type="button">
+                <svg viewBox="0 0 24 24"><path d="M14 8l4 4-4 4M18 12H7M5 5v14"/></svg>
+                انضمام برمز
+              </button>
+            </div>
+            <button class="text-link" data-route="lobby" type="button">دخول الغرفة التجريبية <span>←</span></button>
+          </div>
+
+          <div class="stat-strip" aria-label="خصائص اللعبة">
+            <div><strong>20</strong><span>لاعباً كحد أقصى</span></div>
+            <div><strong>5+</strong><span>لاعبين للبدء</span></div>
+            <div><strong>∞</strong><span>جولات من الخداع</span></div>
+          </div>
+
+          <div class="section-heading">
+            <div><span>كيف تسير اللعبة؟</span><h2>ليلة تكشف الوجوه</h2></div>
+            <button class="icon-button mini" data-route="rules" type="button" aria-label="عرض القواعد">
+              <svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg>
+            </button>
+          </div>
+          <div class="how-grid">
+            <article class="how-card">
+              <span class="step-icon purple"><svg viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8Z"/></svg></span>
+              <small>01</small><h3>يحلّ الليل</h3><p>تتحرك الأدوار سراً، وتتفق المافيا على ضحيتها.</p>
+            </article>
+            <article class="how-card">
+              <span class="step-icon yellow"><svg viewBox="0 0 24 24"><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6L7 7M17 17l1.4 1.4M18.4 5.6L17 7M7 17l-1.4 1.4"/><circle cx="12" cy="12" r="4"/></svg></span>
+              <small>02</small><h3>تستيقظ الحارة</h3><p>نقاش مفتوح، ثم طابور منظم لمن يريد الدفاع أو الاتهام.</p>
+            </article>
+            <article class="how-card">
+              <span class="step-icon red"><svg viewBox="0 0 24 24"><path d="M12 3v18M5 8h14M7 8l-3 6h6L7 8Zm10 0-3 6h6l-3-6Z"/></svg></span>
+              <small>03</small><h3>وقت الحكم</h3><p>تصويت مباشر وحاسم؛ النتائج تظهر، والهويات تبقى مستورة حتى الإغلاق.</p>
+            </article>
+          </div>
+          <footer class="home-footer"><span>نسخة واجهة تجريبية 0.1</span><b>صُممت لليالي طويلة</b></footer>
+        </section>
+
+        <section class="view" data-view="lobby">
+          <div class="room-banner">
+            <div class="room-code-block"><small>رمز الغرفة</small><strong id="roomCode">MAF-728</strong></div>
+            <button class="copy-button" id="copyCodeButton" type="button" aria-label="نسخ رمز الغرفة">
+              <svg viewBox="0 0 24 24"><rect x="8" y="8" width="11" height="11" rx="2"/><path d="M16 8V6a2 2 0 00-2-2H6a2 2 0 00-2 2v8a2 2 0 002 2h2"/></svg>
+              <span>نسخ</span>
+            </button>
+          </div>
+
+          <div class="lobby-title">
+            <div><span class="live-dot"></span><small>الغرفة جاهزة</small><h1>مجلس الحارة</h1></div>
+            <div class="player-total"><strong id="playerCount">8</strong><span>/ 20</span></div>
+          </div>
+
+          <div class="panel players-panel">
+            <div class="panel-heading"><h2>اللاعبون</h2><span>المضيف يشارك بدور سري</span></div>
+            <div id="lobbyPlayers" class="player-list"></div>
+            <button class="button button-ghost full" id="addMockPlayer" type="button">
+              <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+              إضافة لاعب تجريبي
+            </button>
+          </div>
+
+          <div class="panel settings-panel">
+            <div class="panel-heading"><h2>إعدادات الجولة</h2><span>توزيع ذكي حسب العدد</span></div>
+            <div class="setting-row"><div class="setting-icon"><svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8ZM19 8v6M16 11h6"/></svg></div><div><strong>الأدوار الأساسية</strong><span>مافيا (2) · طبيب · محقق · 4 مواطنين</span></div><b class="ready-tag">تلقائي</b></div>
+            <div class="setting-row"><div class="setting-icon"><svg viewBox="0 0 24 24"><path d="M20.8 4.6a5.5 5.5 0 00-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 00-7.8 7.8l1.1 1.1L12 21l7.7-7.5a5.5 5.5 0 001.1-8.9Z"/></svg></div><div><strong>كيوبيد</strong><span>يربط عاشقين بمصير واحد</span></div><label class="switch"><input id="cupidToggle" type="checkbox"><span></span></label></div>
+            <div class="setting-row"><div class="setting-icon"><svg viewBox="0 0 24 24"><path d="M9 3h6M10 3v5l-5.5 9.5A2.3 2.3 0 006.5 21h11a2.3 2.3 0 002-3.5L14 8V3M7 15h10"/></svg></div><div><strong>الساحرة</strong><span>جرعة إنقاذ وأخرى للإقصاء</span></div><label class="switch"><input id="witchToggle" type="checkbox"><span></span></label></div>
+          </div>
+
+          <div class="host-note">
+            <svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="M9 12l2 2 4-4"/></svg>
+            <p><strong>أنت المضيف واللاعب.</strong> ستحصل على دور سري، وتبقى أدوات إدارة الغرفة متاحة لك حتى بعد الإقصاء.</p>
+          </div>
+
+          <div class="sticky-action">
+            <button class="button button-primary button-large full" id="startGameButton" type="button">
+              <span>بدء الجولة التجريبية</span><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+            </button>
+            <small id="minimumHint">كل شيء جاهز · 8 لاعبين متصلين</small>
+          </div>
+        </section>
+
+        <section class="view game-view" data-view="game">
+          <div class="game-status-bar">
+            <div><span id="phaseIcon" class="phase-icon"><svg viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8Z"/></svg></span><div><small id="roundLabel">الجولة الأولى</small><strong id="phaseLabel">حلّ الليل</strong></div></div>
+            <div class="timer" id="mainTimer"><span id="timerValue">01:15</span><small>متبقٍ</small></div>
+          </div>
+
+          <div class="phase-progress"><span id="phaseProgress"></span></div>
+
+          <div id="gameContent"></div>
+
+          <nav class="game-tabs" aria-label="أقسام الجولة">
+            <button class="is-active" data-game-tab="arena" type="button"><svg viewBox="0 0 24 24"><path d="M12 22a10 10 0 100-20 10 10 0 000 20Z"/><path d="M8 12h8M12 8v8"/></svg><span>الساحة</span></button>
+            <button data-game-tab="players" type="button"><svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8ZM22 21v-2a4 4 0 00-3-3.9"/></svg><span>اللاعبون</span></button>
+            <button data-game-tab="chat" type="button"><span class="tab-badge" id="chatBadge">2</span><svg viewBox="0 0 24 24"><path d="M21 15a4 4 0 01-4 4H8l-5 3V7a4 4 0 014-4h10a4 4 0 014 4v8Z"/></svg><span>المحادثة</span></button>
+            <button data-game-tab="history" type="button"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 109-9 9.7 9.7 0 00-6.7 2.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/></svg><span>السجل</span></button>
+          </nav>
+        </section>
+
+        <section class="view rules-view" data-view="rules">
+          <div class="page-kicker">دليل الحارة</div>
+          <h1>القواعد، بلا غموض</h1>
+          <p class="page-lede">نسخة مختصرة للقواعد المعتمدة في هذا النموذج.</p>
+          <div class="rules-list">
+            <article><b>01</b><div><h2>الغرفة والأدوار</h2><p>من 5 إلى 20 لاعباً. المضيف لاعب بدور سري، ويحتفظ بإدارة الغرفة بعد موته. يتكيف التوزيع تلقائياً، ويمكن إضافة كيوبيد والساحرة.</p></div></article>
+            <article><b>02</b><div><h2>الليل</h2><p>قناة خاصة صوتاً ونصاً للمافيا. تعمل بقية الأدوار بالتتابع، ولا يرى كل لاعب إلا الإجراء الذي يخصه.</p></div></article>
+            <article><b>03</b><div><h2>النهار والكلام</h2><p>أربع دقائق للنقاش الحر. تتوقف أثناء أول مداخلة (دقيقتان) وكل مداخلة تالية (دقيقة). الميكروفون بيد اللاعب، والطابور ظاهر للجميع.</p></div></article>
+            <article><b>04</b><div><h2>التصويت والدفاع</h2><p>تصويت حي لمدة 60 ثانية بأعداد علنية وهويات سرية حتى الإغلاق. ثم دفاع، وإعادة عند التعادل، ولا إقصاء إذا استمر التعادل.</p></div></article>
+            <article><b>05</b><div><h2>بعد الإقصاء والعودة</h2><p>سجل التصويت محفوظ، واللاعبون الموتى ينتقلون إلى محادثة نصية فقط. عند انقطاع لاعب، يتولى الروبوت مكانه مؤقتاً حتى يعود.</p></div></article>
+          </div>
+          <div class="prototype-note"><span>تجريبي</span><p>الصوت والاتصال اللحظي والروبوت معروضة هنا كمحاكاة واجهة فقط؛ لا يتم إرسال صوت أو بيانات إلى خادم في هذه النسخة.</p></div>
+          <button class="button button-primary full" data-route="home" type="button">العودة إلى البداية</button>
+        </section>
+      </main>
+
+      <nav class="bottom-nav" aria-label="التنقل الرئيسي">
+        <button class="is-active" data-route="home" type="button"><svg viewBox="0 0 24 24"><path d="M3 11l9-8 9 8v9a1 1 0 01-1 1h-5v-7H9v7H4a1 1 0 01-1-1v-9Z"/></svg><span>الرئيسية</span></button>
+        <button data-route="lobby" type="button"><svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8ZM19 8v6M16 11h6"/></svg><span>الغرفة</span></button>
+        <button data-route="rules" type="button"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.7 9a2.4 2.4 0 014.6 1c0 1.7-2.3 2.1-2.3 3.5M12 17h.01"/></svg><span>القواعد</span></button>
+      </nav>
+
+      <aside class="drawer" id="drawer" aria-hidden="true">
+        <div class="drawer-head"><strong>القائمة</strong><button class="icon-button" id="closeMenuButton" type="button" aria-label="إغلاق"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+        <button data-route="home"><span>الرئيسية</span><small>ابدأ من جديد</small></button>
+        <button data-route="lobby"><span>الغرفة التجريبية</span><small>8 لاعبين</small></button>
+        <button data-route="rules"><span>القواعد</span><small>كل ما يلزمك</small></button>
+        <div class="drawer-foot"><span class="mock-pill">محاكاة محلية</span><p>لا يوجد اتصال بخادم أو قناة صوتية في هذه النسخة.</p></div>
+      </aside>
+      <div class="scrim" id="scrim"></div>
+
+      <dialog id="joinDialog" class="sheet-dialog">
+        <form method="dialog" id="joinForm">
+          <div class="dialog-grip"></div>
+          <div class="dialog-heading"><div><small>انضم إلى رفاقك</small><h2>دخول غرفة</h2></div><button class="icon-button" value="cancel" aria-label="إغلاق"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+          <label>اسمك داخل الحارة<input id="playerNameInput" value="سامي" maxlength="18" autocomplete="nickname" /></label>
+          <label>رمز الغرفة<input id="roomCodeInput" inputmode="text" placeholder="MAF-728" maxlength="7" /></label>
+          <p class="field-error" id="joinError" role="alert"></p>
+          <button class="button button-primary button-large full" value="default">دخول الغرفة</button>
+          <small class="safe-copy">لن يُطلب منك إنشاء حساب في النموذج التجريبي.</small>
+        </form>
+      </dialog>
+
+      <dialog id="roleDialog" class="role-dialog">
+        <div class="role-card">
+          <small>دورك السري</small>
+          <div class="role-orbit"><span></span><svg viewBox="0 0 24 24"><path d="M4 14s1-2 4-2 4 2 8 2 4-2 4-2"/><path d="M6 12l2-7 4 4 4-4 2 7M9 17h6M10 20h4"/></svg></div>
+          <h2>أنت من المافيا</h2>
+          <p>اتفق مع شريكك في الليل، وبدّد الشكوك عنك في النهار.</p>
+          <div class="partner"><span class="avatar a2">ن</span><div><small>شريكك السري</small><strong>نور</strong></div><span class="online-dot"></span></div>
+          <button class="button button-primary full" id="enterGameButton" type="button">فهمت، ادخل الحارة</button>
+          <small class="role-warning">لا تُرِ هذه الشاشة لأي لاعب آخر</small>
+        </div>
+      </dialog>
+
+      <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    </div>
+
+    <script type="module" src="/js/app.js"></script>
+  </body>
+</html>
