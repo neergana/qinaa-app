@@ -7,8 +7,8 @@ import {
   resetForNight,
   startDay,
   startVote,
-} from "./state.js";
-import { realtime } from "./services/mock-realtime.js";
+} from "./state.js?v=6";
+import { realtime } from "./services/mock-realtime.js?v=6";
 
 const $ = (selector, scope = document) => scope.querySelector(selector);
 const $$ = (selector, scope = document) => [...scope.querySelectorAll(selector)];
@@ -113,10 +113,7 @@ function startTicker() {
       if (state.speaker) {
         state.speakerRemaining = Math.max(0, state.speakerRemaining - 1);
         if (state.speakerRemaining === 0) {
-          state.speaker = null;
-          state.micOn = false;
-          showToast("انتهت المداخلة — استؤنف مؤقت النقاش");
-          renderGame();
+          finishCurrentSpeech(true);
         }
       } else {
         state.discussionRemaining = Math.max(0, state.discussionRemaining - 1);
@@ -126,6 +123,12 @@ function startTicker() {
           showToast("انتهى النقاش — فُتح التصويت");
           renderGame();
         }
+      }
+    } else if (state.phase === "defense") {
+      if (state.defenseStarted) {
+        state.defenseRemaining = Math.max(0, state.defenseRemaining - 1);
+        state.phaseRemaining = state.defenseRemaining;
+        if (state.defenseRemaining === 0) completeDefenseTurn(true);
       }
     } else if (state.phase === "vote" && !state.voteClosed) {
       state.voteRemaining = Math.max(0, state.voteRemaining - 1);
@@ -148,12 +151,15 @@ function updateTimers() {
   if (speakerClock) speakerClock.textContent = formatTime(state.speakerRemaining);
   const voteClock = $("#voteClock");
   if (voteClock) voteClock.textContent = formatTime(state.voteRemaining);
+  const defenseClock = $("#defenseClock");
+  if (defenseClock) defenseClock.textContent = formatTime(state.defenseRemaining);
 }
 
 function renderGame() {
   const labels = {
     night: { label: "حلّ الليل", icon: "moon" },
     day: { label: "نهار الحارة", icon: "sun" },
+    defense: { label: "دفاع المتعادلين", icon: "shield" },
     vote: { label: state.voteRound > 1 ? "إعادة التصويت" : "وقت التصويت", icon: "vote" },
   };
   const current = labels[state.phase];
@@ -165,7 +171,7 @@ function renderGame() {
   $("#chatBadge").textContent = state.phase === "night" ? state.messages.mafia.length : state.players.find((p) => p.id === "me").alive ? "•" : state.messages.dead.length;
 
   if (state.currentTab === "arena") {
-    gameContent.innerHTML = state.phase === "night" ? nightTemplate() : state.phase === "day" ? dayTemplate() : voteTemplate();
+    gameContent.innerHTML = state.phase === "night" ? nightTemplate() : state.phase === "day" ? dayTemplate() : state.phase === "defense" ? defenseTemplate() : voteTemplate();
   } else if (state.currentTab === "players") {
     gameContent.innerHTML = playersTemplate();
   } else if (state.currentTab === "chat") {
@@ -178,6 +184,7 @@ function renderGame() {
 
 function nightTemplate() {
   const targets = state.players.filter((player) => !["me", "noor"].includes(player.id) && player.alive);
+  const targetName = state.selectedTarget ? state.players.find((player) => player.id === state.selectedTarget)?.name : "";
   return `
     <div class="game-stage">
       <section class="stage-hero">
@@ -186,9 +193,14 @@ function nightTemplate() {
         <h1>اختاروا هدف الليلة</h1>
         <p>لا يسمع هذه القناة ولا يرى رسائلها سوى أعضاء المافيا. الصوت هنا واجهة محاكاة فقط.</p>
       </section>
-      <div class="section-label"><h2>الهدف المقترح</h2><span>${state.selectedTarget ? "تم تثبيت اختيارك" : "اختر لاعباً واحداً"}</span></div>
+      <div class="section-label"><h2>الهدف المقترح</h2><span>${state.nightChoiceConfirmed ? "اختيارك مقفل" : state.selectedTarget ? "بانتظار التأكيد" : "اختر لاعباً واحداً"}</span></div>
       <div class="target-grid">
-        ${targets.map((player) => `<button class="target-card ${state.selectedTarget === player.id ? "is-selected" : ""}" data-target="${player.id}">${avatar(player)}<strong>${escapeHtml(player.name)}</strong><small>حيّ · متصل</small></button>`).join("")}
+        ${targets.map((player) => `<button class="target-card ${state.selectedTarget === player.id ? "is-selected" : ""} ${state.nightChoiceConfirmed ? "is-locked" : ""}" data-target="${player.id}" ${state.nightChoiceConfirmed ? "disabled" : ""}>${avatar(player)}<strong>${escapeHtml(player.name)}</strong><small>حيّ · متصل</small></button>`).join("")}
+      </div>
+      <div class="confirmation-panel ${state.nightChoiceConfirmed ? "is-complete" : ""}">
+        <div class="confirmation-copy"><span class="confirmation-icon">${state.nightChoiceConfirmed ? "✓" : icon("lock")}</span><div><strong>${state.nightChoiceConfirmed ? `تم تأكيد ${escapeHtml(targetName)}` : "أكّد اختيارك النهائي"}</strong><small>${state.nightChoiceConfirmed ? "اكتملت تأكيدات المافيا؛ تنتقل المرحلة تلقائياً." : "شريكتك أكدت اختيارها · ينتهي الليل فور تأكيدكما."}</small></div></div>
+        <div class="confirmation-progress"><span style="--confirmed:${state.nightChoiceConfirmed ? 100 : 50}%"></span></div>
+        <div class="confirmation-footer"><b>${state.nightChoiceConfirmed ? 2 : state.nightConfirmations} من 2 أكدوا</b><button class="button button-primary" data-action="confirm-night" ${!state.selectedTarget || state.nightChoiceConfirmed ? "disabled" : ""}>${state.nightChoiceConfirmed ? "تم التأكيد" : "تأكيد الهدف"}</button></div>
       </div>
       <div class="section-label"><h2>همس المافيا</h2><span>مشفّر في النسخة النهائية</span></div>
       ${channelTemplate("mafia")}
@@ -196,16 +208,14 @@ function nightTemplate() {
         <div><span class="voice-visual"><i></i><i></i><i></i></span><span><strong>قناة الصوت الخاصة</strong><small>محاكاة واجهة — لا صوت فعلياً</small></span></div>
         <button class="mic-button ${state.micOn ? "" : "is-muted"}" data-action="toggle-mic" aria-label="${state.micOn ? "كتم الميكروفون" : "تشغيل الميكروفون"}">${icon(state.micOn ? "mic" : "micOff")}</button>
       </div>
-      ${hostControlsTemplate("night")}
+      <div class="automation-note">${icon("shield")}<p><strong>الانتقال آلي.</strong> لا يستطيع المضيف إنهاء الليل بدلاً من اللاعبين؛ لكل دور اختياره وزر تأكيده الخاص.</p></div>
     </div>`;
 }
 
 function dayTemplate() {
-  const queue = [
-    state.players.find((p) => p.id === "layan"),
-    state.players.find((p) => p.id === "youssef"),
-    ...(state.requestedToSpeak ? [state.players.find((p) => p.id === "me")] : []),
-  ];
+  const queue = state.speechQueue.map((id) => state.players.find((player) => player.id === id)).filter(Boolean);
+  const isMyTurn = state.speaker?.id === "me";
+  const requestDisabled = Boolean(state.speaker?.id === "me");
   return `
     <div class="game-stage">
       <section class="stage-hero">
@@ -217,23 +227,55 @@ function dayTemplate() {
       <div class="section-label"><h2>مؤقت النقاش</h2><span>${state.speaker ? "متوقف أثناء المداخلة" : "يعمل الآن"}</span></div>
       <div class="discussion-timer">
         <div class="discussion-top"><strong>${state.speaker ? "المؤقت متوقف مؤقتاً" : "النقاش الحر"}</strong><span id="discussionClock">${formatTime(state.discussionRemaining)}</span></div>
-        <p>${state.speaker ? "سيُستأنف المؤقت فور انتهاء دور المتحدث." : "يمكن للجميع التحكم في ميكروفوناتهم أثناء النقاش الحر."}</p>
+        <p>${state.speaker ? "ينتقل الدور تلقائياً إلى التالي. المتحدث وحده يستطيع إنهاء مداخلته قبل انتهاء الوقت." : "أول من يطلب الكلام يبدأ فوراً، ثم يعمل الطابور تلقائياً."}</p>
         ${state.speaker ? `<div class="speaker-card">${avatar(state.speaker)}<div><strong>${escapeHtml(state.speaker.name)} يتحدث الآن</strong><small>${state.speakerIndex === 1 ? "المداخلة الأولى · دقيقتان" : "مداخلة · دقيقة واحدة"}</small></div><b class="speaker-clock" id="speakerClock">${formatTime(state.speakerRemaining)}</b></div>` : ""}
+        ${state.speaker ? `<button class="self-stop ${isMyTurn ? "" : "is-locked"}" data-action="self-stop" ${isMyTurn ? "" : "disabled"}>${isMyTurn ? "إنهاء مداخلتي وتمرير الدور" : `التحكم لدى ${escapeHtml(state.speaker.name)} وحده`}</button>` : ""}
       </div>
       <div class="voice-bar">
-        <div>${icon(state.micOn ? "mic" : "micOff")}<span><strong>ميكروفونك ${state.micOn ? "مفتوح" : "مكتوم"}</strong><small>التحكم بيدك · واجهة بلا بث</small></span></div>
-        <button class="mic-button ${state.micOn ? "" : "is-muted"}" data-action="toggle-mic" aria-label="تبديل الميكروفون">${icon(state.micOn ? "mic" : "micOff")}</button>
+        <div>${icon(state.micOn ? "mic" : "micOff")}<span><strong>${state.speaker && !isMyTurn ? `الدور عند ${escapeHtml(state.speaker.name)}` : `ميكروفونك ${state.micOn ? "مفتوح" : "مكتوم"}`}</strong><small>${state.speaker && !isMyTurn ? "لا يمكن للمضيف أو غيره قطع المداخلة" : "التحكم بيدك · واجهة بلا بث"}</small></span></div>
+        <button class="mic-button ${state.micOn ? "" : "is-muted"}" data-action="toggle-mic" aria-label="تبديل الميكروفون" ${state.speaker && !isMyTurn ? "disabled" : ""}>${icon(state.micOn ? "mic" : "micOff")}</button>
       </div>
       <div class="section-label"><h2>طابور المتحدثين</h2><span>${queue.length} في الانتظار</span></div>
-      <div class="queue-list">${queue.map((player, index) => `<div class="queue-item">${avatar(player)}<strong>${escapeHtml(player.name)}${player.id === "me" ? " (أنت)" : ""}</strong><b>#${index + 1}</b></div>`).join("")}</div>
-      <button class="button ${state.requestedToSpeak ? "button-secondary" : "button-primary"} full" data-action="request-speech" type="button">${state.requestedToSpeak ? "إلغاء طلب الكلام" : "طلب دور للكلام"}</button>
-      ${hostControlsTemplate("day")}
+      <div class="queue-list">${queue.length ? queue.map((player, index) => `<div class="queue-item">${avatar(player)}<strong>${escapeHtml(player.name)}${player.id === "me" ? " (أنت)" : ""}</strong><b>#${index + 1}</b></div>`).join("") : '<div class="queue-empty">لا أحد ينتظر الآن</div>'}</div>
+      <button class="button ${state.requestedToSpeak || isMyTurn ? "button-secondary" : "button-primary"} full" data-action="request-speech" type="button" ${requestDisabled ? "disabled" : ""}>${isMyTurn ? "أنت تتحدث الآن" : state.requestedToSpeak ? "إلغاء طلبي من الطابور" : "طلب الكلام والبدء تلقائياً"}</button>
+      <div class="automation-note">${icon("users")}<p><strong>طابور آلي بالكامل.</strong> لا يختار المضيف المتحدث ولا ينهي مداخلته. ينتقل الدور عند ضغط المتحدث على الإنهاء أو انتهاء وقته.</p></div>
+    </div>`;
+}
+
+function defenseTemplate() {
+  const candidate = state.players.find((player) => player.id === state.defenseCandidates[state.defenseIndex]);
+  if (!candidate) return '<div class="empty-state"><h2>انتهت الدفاعات</h2><p>تبدأ إعادة التصويت الآن.</p></div>';
+  const isMyDefense = candidate.id === "me";
+  return `
+    <div class="game-stage">
+      <section class="stage-hero defense-hero">
+        <span class="mock-flag">تعادل في الأصوات</span>
+        <div class="eyebrow"><span></span> دفاع ${state.defenseIndex + 1} من ${state.defenseCandidates.length}</div>
+        <h1>الدور عند ${escapeHtml(candidate.name)}</h1>
+        <p>تسعون ثانية كحد أقصى. لا يوجد طابور كلام في هذه المرحلة، ولا يُسمح بالكلام صوتياً إلا لصاحب الدفاع.</p>
+      </section>
+      <div class="defense-order">
+        ${state.defenseCandidates.map((id, index) => {
+          const player = state.players.find((item) => item.id === id);
+          const status = index < state.defenseIndex ? "اكتمل" : index === state.defenseIndex ? "يدافع الآن" : "التالي";
+          return `<div class="defense-chip ${index === state.defenseIndex ? "is-active" : ""} ${index < state.defenseIndex ? "is-done" : ""}">${avatar(player)}<span><strong>${escapeHtml(player.name)}</strong><small>${status}</small></span></div>`;
+        }).join("")}
+      </div>
+      <div class="defense-chamber">
+        <div class="defense-person">${avatar(candidate)}<div><small>صاحب الدفاع</small><strong>${escapeHtml(candidate.name)}</strong></div><b id="defenseClock">${formatTime(state.defenseRemaining)}</b></div>
+        <div class="defense-voice ${state.defenseStarted ? "is-live" : ""}">${icon(state.defenseStarted ? "mic" : "micOff")}<div><strong>${state.defenseStarted ? "الدفاع جارٍ الآن" : "لم يبدأ الدفاع بعد"}</strong><small>${isMyDefense ? "أنت وحدك تتحكم في الميكروفون والإنهاء" : `التحكم لدى ${escapeHtml(candidate.name)} وحده`}</small></div></div>
+        ${isMyDefense ? `<button class="button button-primary full" data-action="${state.defenseStarted ? "finish-defense" : "begin-defense"}">${state.defenseStarted ? "إنهاء دفاعي" : "بدء دفاعي"}</button>` : `<div class="defense-readonly">${state.defenseStarted ? `بدأ ${escapeHtml(candidate.name)} دفاعه. لا يمكن للمضيف أو أي لاعب آخر إيقافه.` : `ننتظر ${escapeHtml(candidate.name)} ليبدأ دفاعه.`}</div>`}
+      </div>
+      <div class="automation-note">${icon("shield")}<p><strong>لا طابور ولا تدخل من المضيف.</strong> بعد انتهاء دفاع جميع المتعادلين تبدأ إعادة التصويت تلقائياً.</p></div>
     </div>`;
 }
 
 function voteTemplate() {
-  const candidates = ["omar", "youssef", "mariam"].map((id) => state.players.find((player) => player.id === id));
+  const candidateIds = state.voteRound > 1 && state.revoteCandidates.length ? state.revoteCandidates : ["omar", "youssef", "mariam"];
+  const candidates = candidateIds.map((id) => state.players.find((player) => player.id === id)).filter(Boolean);
   const totalVotes = Object.values(state.votes).reduce((sum, value) => sum + value, 0) || 1;
+  const aliveCount = state.players.filter((player) => player.alive).length;
+  const confirmationPercent = Math.round((state.voteConfirmations / Math.max(1, aliveCount)) * 100);
   const result = getVoteResult();
   return `
     <div class="game-stage">
@@ -248,23 +290,24 @@ function voteTemplate() {
         ${candidates.map((player) => {
           const count = state.votes[player.id] || 0;
           const percent = Math.round((count / totalVotes) * 100);
-          return `<button class="vote-row ${state.myVote === player.id ? "is-my-vote" : ""}" style="--vote-width:${percent}%" data-vote="${player.id}" ${state.voteClosed ? "disabled" : ""}>${avatar(player)}<div><strong>${escapeHtml(player.name)}</strong><small>${state.voteClosed && state.revealVoters ? voteIdentities(player.id) : "هويات المصوّتين مخفية"}</small></div><b class="vote-count">${count} ${count === 1 ? "صوت" : "أصوات"}</b></button>`;
+          return `<button class="vote-row ${state.myVote === player.id ? "is-my-vote" : ""} ${state.voteConfirmed ? "is-locked" : ""}" style="--vote-width:${percent}%" data-vote="${player.id}" ${state.voteClosed || state.voteConfirmed ? "disabled" : ""}>${avatar(player)}<div><strong>${escapeHtml(player.name)}</strong><small>${state.voteClosed && state.revealVoters ? voteIdentities(player.id) : state.voteConfirmed && state.myVote === player.id ? "تم تأكيد صوتك" : "هويات المصوّتين مخفية"}</small></div><b class="vote-count">${count} ${count === 1 ? "صوت" : "أصوات"}</b></button>`;
         }).join("")}
       </div>
-      <p class="vote-note">يمكنك تغيير صوتك حتى نهاية العدّ التنازلي.</p>
+      <p class="vote-note">${state.voteClosed ? "أُغلق الصندوق وكُشفت هويات المصوّتين." : "يمكنك تغيير اختيارك قبل التأكيد. بعد التأكيد يصبح صوتك نهائياً."}</p>
+      ${!state.voteClosed ? `<div class="confirmation-panel ${state.voteConfirmed ? "is-complete" : ""}"><div class="confirmation-copy"><span class="confirmation-icon">${state.voteConfirmed ? "✓" : icon("vote")}</span><div><strong>${state.voteConfirmed ? "تم تأكيد صوتك" : state.myVote ? `اختيارك: ${escapeHtml(state.players.find((p) => p.id === state.myVote)?.name || "")}` : "اختر مرشحاً ثم أكّد"}</strong><small>${state.voteConfirmed ? "اكتملت التأكيدات؛ يُغلق الصندوق تلقائياً." : `${state.voteConfirmations} لاعبين أكدوا. لن ننتظر نهاية الوقت بعد تأكيدك.`}</small></div></div><div class="confirmation-progress"><span style="--confirmed:${state.voteConfirmed ? 100 : confirmationPercent}%"></span></div><div class="confirmation-footer"><b>${state.voteConfirmed ? aliveCount : state.voteConfirmations} من ${aliveCount} أكدوا</b><button class="button button-primary" data-action="confirm-vote" ${!state.myVote || state.voteConfirmed ? "disabled" : ""}>${state.voteConfirmed ? "تم التأكيد" : "تأكيد صوتي"}</button></div></div>` : ""}
       ${state.voteClosed ? resultTemplate(result) : ""}
-      ${hostControlsTemplate("vote")}
+      <div class="automation-note">${icon("shield")}<p><strong>لا إغلاق يدوي للصندوق.</strong> يُغلق تلقائياً عند تأكيد الجميع أو انتهاء الـ60 ثانية.</p></div>
     </div>`;
 }
 
 function resultTemplate(result) {
   if (result.tie) {
     if (state.voteRound >= 2) {
-      return `<div class="prototype-note"><span>انتهى</span><p><strong>استمر التعادل.</strong> وفق القواعد، تُلغى عملية الإقصاء وتنتقل الحارة إلى الليلة التالية.</p></div><button class="button button-primary full" data-action="next-night">الانتقال إلى الليلة التالية</button>`;
+      return `<div class="prototype-note"><span>لا إقصاء</span><p><strong>استمر التعادل بعد الإعادة.</strong> أُلغيت النتيجة، وسيبدأ الليل التالي تلقائياً.</p></div>`;
     }
-    return `<div class="prototype-note"><span>تعادل</span><p>تعادل ${result.names.join(" و")} في عدد الأصوات. تبدأ إعادة واحدة لمدة 60 ثانية.</p></div><button class="button button-primary full" data-action="start-revote">بدء إعادة التصويت</button>`;
+    return `<div class="prototype-note"><span>تعادل</span><p>تعادل ${result.names.join(" و")} في عدد الأصوات. لكل واحد دفاع منفرد حتى 90 ثانية، ثم تبدأ إعادة التصويت تلقائياً.</p></div>`;
   }
-  return `<div class="prototype-note"><span>دفاع</span><p><strong>${escapeHtml(result.names[0])}</strong> حصل على أعلى الأصوات. تبدأ الآن فرصة دفاع أخيرة قبل تنفيذ قرار الحارة.</p></div><button class="button button-secondary full" data-action="start-defense">بدء دفاع لمدة 60 ثانية</button>`;
+  return `<div class="prototype-note"><span>تم الإقصاء</span><p><strong>${escapeHtml(result.names[0])}</strong> حصل على أعلى عدد من الأصوات وأُقصي مباشرةً. لا توجد مرحلة دفاع عند غياب التعادل.</p></div>`;
 }
 
 function playersTemplate() {
@@ -303,15 +346,6 @@ function channelTemplate(channel) {
   return `<div class="mafia-channel"><div class="channel-head"><div>${icon(channel === "mafia" ? "lock" : "skull")}<strong>${channel === "mafia" ? "قناة سرية" : "نص المتفرجين"}</strong></div><span class="voice-visual"><i></i><i></i><i></i></span></div><div class="messages" id="messageList">${messages.map((message) => `<div class="message ${message.mine ? "mine" : ""}">${avatar(message)}<div class="message-bubble">${escapeHtml(message.body)}<small>${escapeHtml(message.time)}</small></div></div>`).join("")}</div><form class="chat-compose" data-chat-form="${channel}"><input name="message" maxlength="120" placeholder="اكتب رسالة قصيرة…" autocomplete="off" aria-label="رسالة"><button type="submit" aria-label="إرسال">${icon("send")}</button></form></div>`;
 }
 
-function hostControlsTemplate(context) {
-  const copy = {
-    night: ["إنهاء الليل", "بدء النهار"],
-    day: [state.speaker ? "إنهاء المداخلة" : "استدعاء المتحدث", "فتح التصويت"],
-    vote: ["محاكاة تعادل", state.voteClosed ? "النتيجة معلنة" : "إغلاق الصندوق"],
-  }[context];
-  return `<div class="host-controls"><div class="host-controls-head"><strong>${icon("shield")} أدوات المضيف</strong><span>تبقى بعد الإقصاء</span></div><div class="host-controls-actions"><button class="small-button" data-action="host-primary" data-context="${context}">${copy[0]}</button><button class="small-button" data-action="host-secondary" data-context="${context}" ${context === "vote" && state.voteClosed ? "disabled" : ""}>${copy[1]}</button></div></div>`;
-}
-
 function getVoteResult() {
   const max = Math.max(...Object.values(state.votes));
   const leaderIds = Object.entries(state.votes).filter(([, count]) => count === max).map(([id]) => id);
@@ -320,78 +354,184 @@ function getVoteResult() {
 
 function voteIdentities(candidateId) {
   const identities = {
-    omar: "سامي، سلمى، زياد",
-    youssef: "ليان",
-    mariam: "نور، عمر، يوسف",
+    omar: ["نور", "سلمى", "زياد"],
+    youssef: ["ليان", "عمر"],
+    mariam: ["مريم", "يوسف"],
   };
-  return identities[candidateId] || "لا أحد";
+  const voters = [...(identities[candidateId] || [])];
+  if (state.myVote === candidateId && state.voteConfirmed) voters.unshift(state.players.find((player) => player.id === "me").name);
+  return voters.join("، ") || "لا أحد";
 }
 
-function closeVote(forceTie = false) {
+function closeVote() {
   if (state.voteClosed) return;
-  if (forceTie) state.votes = { omar: 3, youssef: 0, mariam: 3 };
+  if (!state.voteConfirmed) state.myVote = null;
   state.voteClosed = true;
   state.revealVoters = true;
   state.phaseRemaining = state.voteRemaining;
   const result = getVoteResult();
+  if (!result.tie) {
+    const eliminated = state.players.find((player) => player.id === result.ids[0]);
+    if (eliminated) eliminated.alive = false;
+  } else if (state.voteRound === 1) {
+    state.revoteCandidates = [...result.ids];
+  }
   state.history.push({
     round: state.round,
     title: state.voteRound > 1 ? "إعادة التصويت" : "التصويت العام",
-    result: result.tie ? (state.voteRound > 1 ? "استمر التعادل؛ لا إقصاء." : "تعادل؛ تقررت الإعادة.") : `${result.names[0]} إلى مرحلة الدفاع.`,
+    result: result.tie ? (state.voteRound > 1 ? "استمر التعادل؛ لا إقصاء." : "تعادل؛ دفاع منفرد لكل مرشح ثم إعادة.") : `${result.names[0]} أُقصي مباشرةً بأعلى الأصوات.`,
     voters: ["سامي ← عمر", "نور ← مريم", "ليان ← يوسف", "عمر ← مريم", "سلمى ← عمر"],
     tie: result.tie,
   });
   showToast("أُغلق التصويت وكُشفت هويات المصوّتين");
   renderGame();
+  if (result.tie && state.voteRound === 1) {
+    window.setTimeout(() => startTieDefense(result.ids), 1100);
+  } else {
+    window.setTimeout(() => goToNextNight(), 1900);
+  }
+}
+
+function startTieDefense(candidateIds) {
+  if (state.phase !== "vote" || !state.voteClosed) return;
+  state.phase = "defense";
+  state.phaseSeconds = 90;
+  state.phaseRemaining = 90;
+  state.defenseCandidates = [...candidateIds];
+  state.defenseIndex = 0;
+  state.defenseRemaining = 90;
+  state.speaker = null;
+  state.speechQueue = [];
+  state.requestedToSpeak = false;
+  state.micOn = false;
+  state.currentTab = "arena";
+  const first = state.players.find((player) => player.id === state.defenseCandidates[0]);
+  state.defenseStarted = first?.id !== "me";
+  showToast(`بدأ دفاع ${first?.name || "المرشح الأول"} — 90 ثانية كحد أقصى`);
+  renderGame();
+}
+
+function completeDefenseTurn(fromTimer = false) {
+  const finished = state.players.find((player) => player.id === state.defenseCandidates[state.defenseIndex]);
+  state.defenseIndex += 1;
+  if (state.defenseIndex < state.defenseCandidates.length) {
+    const next = state.players.find((player) => player.id === state.defenseCandidates[state.defenseIndex]);
+    state.defenseRemaining = 90;
+    state.phaseRemaining = 90;
+    state.defenseStarted = next?.id !== "me";
+    state.micOn = false;
+    showToast(`${fromTimer ? `انتهى وقت ${finished?.name || "الدفاع"}` : "انتهى الدفاع"} — الدور عند ${next?.name || "المرشح التالي"}`);
+    renderGame();
+    return;
+  }
+  state.voteRound = 2;
+  startVote(true);
+  showToast("انتهت الدفاعات — بدأت إعادة التصويت تلقائياً");
+  renderGame();
+}
+
+function goToNextNight() {
+  if (state.phase !== "vote" || !state.voteClosed) return;
+  state.round += 1;
+  state.voteRound = 1;
+  resetForNight();
+  showToast("بدأت الليلة التالية");
+  renderGame();
 }
 
 function startNextSpeaker() {
-  const queueIds = ["layan", "youssef", ...(state.requestedToSpeak ? ["me"] : [])];
-  const nextId = queueIds[state.speakerIndex % queueIds.length];
+  if (state.speaker || !state.speechQueue.length) return;
+  const nextId = state.speechQueue.shift();
   state.speakerIndex += 1;
   state.speaker = state.players.find((player) => player.id === nextId);
+  if (!state.speaker) return startNextSpeaker();
   state.speakerRemaining = state.speakerIndex === 1 ? 120 : 60;
   state.phaseRemaining = state.speakerRemaining;
+  if (nextId === "me") state.micOn = true;
   showToast(state.speakerIndex === 1 ? "بدأت أول مداخلة — دقيقتان" : "بدأت المداخلة — دقيقة واحدة");
   renderGame();
 }
 
+function finishCurrentSpeech(fromTimer = false) {
+  if (!state.speaker) return;
+  const finished = state.speaker;
+  if (finished.id === "me") state.requestedToSpeak = false;
+  state.speaker = null;
+  state.speakerRemaining = 0;
+  state.micOn = false;
+  if (state.speechQueue.length) {
+    showToast(fromTimer ? `انتهى وقت ${finished.name} — انتقل الدور تلقائياً` : "انتهت مداخلتك — انتقل الدور تلقائياً");
+    startNextSpeaker();
+  } else {
+    state.phaseRemaining = state.discussionRemaining;
+    showToast(fromTimer ? "انتهت المداخلة — استؤنف مؤقت النقاش" : "انتهت مداخلتك — استؤنف النقاش الحر");
+    renderGame();
+  }
+}
+
 function handleGameAction(action, target) {
   if (action === "toggle-mic") {
+    if (state.speaker && state.speaker.id !== "me") return;
     state.micOn = !state.micOn;
     showToast(state.micOn ? "فُتح الميكروفون محلياً (بلا بث)" : "كُتم الميكروفون");
   } else if (action === "request-speech") {
+    if (state.speaker?.id === "me") return;
     state.requestedToSpeak = !state.requestedToSpeak;
-  } else if (action === "host-primary") {
-    const context = target.dataset.context;
-    if (context === "night") startDay();
-    if (context === "day") {
-      if (state.speaker) { state.speaker = null; state.speakerRemaining = 0; }
-      else startNextSpeaker();
+    if (state.requestedToSpeak) {
+      if (!state.speechQueue.includes("me")) state.speechQueue.push("me");
+      if (!state.speaker) startNextSpeaker();
+      window.setTimeout(() => {
+        if (state.phase !== "day") return;
+        ["layan", "youssef"].forEach((id) => {
+          if (state.speaker?.id !== id && !state.speechQueue.includes(id)) state.speechQueue.push(id);
+        });
+        if (state.route === "game" && state.currentTab === "arena") renderGame();
+      }, 450);
+      return;
+    } else {
+      state.speechQueue = state.speechQueue.filter((id) => id !== "me");
     }
-    if (context === "vote") { closeVote(true); return; }
-  } else if (action === "host-secondary") {
-    const context = target.dataset.context;
-    if (context === "night") startDay();
-    if (context === "day") startVote();
-    if (context === "vote") { closeVote(); return; }
-  } else if (action === "start-revote") {
-    state.voteRound += 1;
-    startVote(true);
-    showToast("بدأت الإعادة — 60 ثانية");
+  } else if (action === "self-stop") {
+    if (state.speaker?.id !== "me") return;
+    finishCurrentSpeech(false);
+    return;
+  } else if (action === "confirm-night") {
+    if (!state.selectedTarget || state.nightChoiceConfirmed) return;
+    state.nightChoiceConfirmed = true;
+    state.nightConfirmations = 2;
+    renderGame();
+    showToast("اكتملت تأكيدات المافيا — يبدأ النهار الآن");
+    window.setTimeout(() => {
+      if (state.phase !== "night" || !state.nightChoiceConfirmed) return;
+      startDay();
+      renderGame();
+    }, 650);
+    return;
+  } else if (action === "confirm-vote") {
+    if (!state.myVote || state.voteConfirmed || state.voteClosed) return;
+    state.voteConfirmed = true;
+    state.votes[state.myVote] = (state.votes[state.myVote] || 0) + 1;
+    state.voteConfirmations = state.players.filter((player) => player.alive).length;
+    renderGame();
+    showToast("أكد الجميع أصواتهم — يُغلق الصندوق الآن");
+    window.setTimeout(() => {
+      if (!state.voteClosed && state.voteConfirmed) closeVote();
+    }, 650);
+    return;
+  } else if (action === "begin-defense") {
+    const candidateId = state.defenseCandidates[state.defenseIndex];
+    if (candidateId !== "me" || state.defenseStarted) return;
+    state.defenseStarted = true;
+    state.micOn = true;
+    showToast("بدأ دفاعك — لديك 90 ثانية كحد أقصى");
+  } else if (action === "finish-defense") {
+    const candidateId = state.defenseCandidates[state.defenseIndex];
+    if (candidateId !== "me" || !state.defenseStarted) return;
+    completeDefenseTurn(false);
+    return;
   } else if (action === "next-night") {
-    state.round += 1;
-    state.voteRound = 1;
-    resetForNight();
-  } else if (action === "start-defense") {
-    state.phase = "day";
-    state.phaseSeconds = 60;
-    state.phaseRemaining = 60;
-    state.discussionRemaining = 0;
-    state.speaker = state.players.find((p) => p.id === getVoteResult().ids[0]);
-    state.speakerIndex = 2;
-    state.speakerRemaining = 60;
-    showToast("بدأ الدفاع — دقيقة واحدة");
+    goToNextNight();
+    return;
   } else if (action === "toggle-death") {
     const me = state.players.find((player) => player.id === "me");
     me.alive = !me.alive;
@@ -433,17 +573,15 @@ function bindEvents() {
     }
 
     const targetButton = event.target.closest("[data-target]");
-    if (targetButton) {
+    if (targetButton && !state.nightChoiceConfirmed) {
       state.selectedTarget = targetButton.dataset.target;
-      showToast(`ثُبّت الهدف: ${state.players.find((p) => p.id === state.selectedTarget).name}`);
+      showToast(`اختيار مبدئي: ${state.players.find((p) => p.id === state.selectedTarget).name} — أكّد للمتابعة`);
       renderGame();
     }
 
     const voteButton = event.target.closest("[data-vote]");
-    if (voteButton && !state.voteClosed) {
-      if (state.myVote) state.votes[state.myVote] = Math.max(0, (state.votes[state.myVote] || 0) - 1);
+    if (voteButton && !state.voteClosed && !state.voteConfirmed) {
       state.myVote = voteButton.dataset.vote;
-      state.votes[state.myVote] = (state.votes[state.myVote] || 0) + 1;
       renderGame();
     }
 
@@ -535,7 +673,29 @@ function bindEvents() {
 loadLocalState();
 bindEvents();
 renderLobby();
-navigate("home");
+const demoPhase = new URLSearchParams(window.location.search).get("demo");
+if (demoPhase === "vote") {
+  startVote();
+  navigate("game");
+} else if (demoPhase === "revote") {
+  state.revoteCandidates = ["omar", "mariam"];
+  state.voteRound = 2;
+  startVote(true);
+  navigate("game");
+} else if (demoPhase === "defense") {
+  state.phase = "defense";
+  state.phaseSeconds = 90;
+  state.phaseRemaining = 90;
+  state.defenseCandidates = ["omar", "mariam"];
+  state.defenseIndex = 0;
+  state.defenseRemaining = 90;
+  state.defenseStarted = true;
+  state.revoteCandidates = ["omar", "mariam"];
+  state.currentTab = "arena";
+  navigate("game");
+} else {
+  navigate("home");
+}
 realtime.connect();
 
 if ("serviceWorker" in navigator) {

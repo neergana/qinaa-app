@@ -21,17 +21,27 @@ export const state = {
   phaseSeconds: 75,
   phaseRemaining: 75,
   selectedTarget: null,
+  nightChoiceConfirmed: false,
+  nightConfirmations: 1,
   micOn: false,
   requestedToSpeak: false,
   speaker: null,
   speakerIndex: 0,
   speakerRemaining: 0,
+  speechQueue: [],
   discussionRemaining: 240,
+  defenseCandidates: [],
+  defenseIndex: 0,
+  defenseRemaining: 90,
+  defenseStarted: false,
+  revoteCandidates: [],
   voteRemaining: 60,
   voteRound: 1,
   voteClosed: false,
+  voteConfirmed: false,
+  voteConfirmations: 7,
   myVote: null,
-  votes: { omar: 2, youssef: 1, mariam: 1 },
+  votes: { omar: 3, youssef: 2, mariam: 2 },
   revealVoters: false,
   messages: {
     mafia: [
@@ -82,6 +92,8 @@ export function resetForNight() {
   state.phaseRemaining = 75;
   state.currentTab = "arena";
   state.selectedTarget = null;
+  state.nightChoiceConfirmed = false;
+  state.nightConfirmations = 1;
   state.micOn = false;
 }
 
@@ -92,9 +104,15 @@ export function startDay() {
   state.discussionRemaining = 240;
   state.currentTab = "arena";
   state.speaker = null;
+  state.speechQueue = [];
+  state.speakerIndex = 0;
   state.speakerRemaining = 0;
   state.requestedToSpeak = false;
   state.micOn = false;
+  state.defenseCandidates = [];
+  state.defenseIndex = 0;
+  state.defenseRemaining = 90;
+  state.defenseStarted = false;
 }
 
 export function startVote(isRevote = false) {
@@ -103,8 +121,16 @@ export function startVote(isRevote = false) {
   state.phaseRemaining = 60;
   state.voteRemaining = 60;
   state.voteClosed = false;
+  state.voteConfirmed = false;
+  state.voteConfirmations = Math.max(0, state.players.filter((player) => player.alive).length - 1);
   state.revealVoters = false;
   state.myVote = null;
-  state.votes = isRevote ? { omar: 2, mariam: 2 } : { omar: 2, youssef: 1, mariam: 1 };
+  if (isRevote) {
+    const [first = "omar", second = "mariam"] = state.revoteCandidates;
+    state.votes = { [first]: 4, [second]: 3 };
+  } else {
+    state.revoteCandidates = [];
+    state.votes = { omar: 3, youssef: 2, mariam: 2 };
+  }
   state.currentTab = "arena";
 }
