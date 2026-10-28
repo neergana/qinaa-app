@@ -1,8 +1,8 @@
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
 
-const state = { overview: null, users: [], rooms: [], admins: [], audit: [], activeTab: "overview" };
-const titles = { overview: "نظرة عامة", users: "المستخدمون", rooms: "الغرف", settings: "التحكم بالموقع", admins: "المشرفون", audit: "سجل الإدارة" };
+const state = { overview: null, users: [], rooms: [], games: [], admins: [], audit: [], activeTab: "overview" };
+const titles = { overview: "نظرة عامة", users: "المستخدمون", rooms: "الغرف", seo: "صفحات الألعاب وSEO", settings: "التحكم بالموقع", admins: "المشرفون", audit: "سجل الإدارة" };
 
 function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character]);
@@ -97,12 +97,33 @@ function renderRooms(data) {
     <article class="data-row">
       <div class="data-user"><span class="user-avatar">${room.private ? "♜" : "⌂"}</span><div><strong>${escapeHtml(room.name)}</strong><small dir="ltr">${escapeHtml(room.code)}</small></div></div>
       <div class="data-meta"><strong>${escapeHtml(room.hostName)}</strong><small dir="ltr">${escapeHtml(room.hostEmail)}</small></div>
-      <div class="chips"><span class="chip ${room.endedAt ? "" : "active"}">${room.endedAt ? "منتهية" : "نشطة"}</span><span class="chip">${room.members} لاعب</span><span class="chip">${room.messages} رسالة</span></div>
+      <div class="chips"><span class="chip">${room.gameType === "imposter" ? "الدخيل" : "أفراد الظل"}</span><span class="chip ${room.endedAt ? "" : "active"}">${room.endedAt ? "منتهية" : "نشطة"}</span><span class="chip">${room.members} لاعب</span><span class="chip">${room.messages} رسالة</span></div>
       <div class="row-actions">${room.endedAt ? `<button class="danger" data-delete-room="${room.id}">حذف السجل</button>` : `<button class="danger" data-end-room="${room.id}">إنهاء الغرفة</button>`}</div>
     </article>`).join("") : '<div class="empty-state">لا توجد غرف بعد.</div>';
 }
 
 async function loadRooms() { renderRooms(await api("/api/admin/rooms")); }
+
+function renderSeoPages(data) {
+  state.games = data.games || [];
+  $("#seoPages").innerHTML = state.games.map((game) => `<form class="panel seo-form" data-seo-game="${escapeHtml(game.gameType)}">
+    <div class="panel-title"><div><span>${escapeHtml(game.gameType === "mafia" ? "لعبة أفراد الظل" : "لعبة الدخيل")}</span><h2>${escapeHtml(game.name)}</h2></div><a href="/games/${encodeURIComponent(game.slug)}" target="_blank" rel="noopener">معاينة الصفحة ↗</a></div>
+    <div class="seo-grid">
+      <label><span>اسم اللعبة</span><input name="name" value="${escapeHtml(game.name)}" required maxlength="60" /></label>
+      <label><span>الرابط المختصر Slug</span><input name="slug" value="${escapeHtml(game.slug)}" dir="ltr" required pattern="[a-z0-9-]+" /></label>
+      <label><span>العبارة فوق العنوان</span><input name="eyebrow" value="${escapeHtml(game.eyebrow)}" maxlength="100" /></label>
+      <label class="seo-wide"><span>وصف صفحة اللعبة</span><textarea name="shortDescription" rows="3" maxlength="240">${escapeHtml(game.shortDescription)}</textarea></label>
+      <label class="seo-wide"><span>عنوان نتائج البحث</span><input name="metaTitle" value="${escapeHtml(game.metaTitle)}" maxlength="70" required /></label>
+      <label class="seo-wide"><span>وصف نتائج البحث</span><textarea name="metaDescription" rows="3" maxlength="170" required>${escapeHtml(game.metaDescription)}</textarea></label>
+      <label class="seo-wide"><span>الكلمات المفتاحية</span><textarea name="keywords" rows="2" maxlength="300">${escapeHtml(game.keywords)}</textarea></label>
+      <label><span>عنوان المشاركة</span><input name="ogTitle" value="${escapeHtml(game.ogTitle)}" maxlength="100" /></label>
+      <label><span>وصف المشاركة</span><textarea name="ogDescription" rows="3" maxlength="200">${escapeHtml(game.ogDescription)}</textarea></label>
+    </div>
+    <button class="primary-button" type="submit">حفظ صفحة ${escapeHtml(game.name)}</button>
+  </form>`).join("");
+}
+
+async function loadSeoPages() { renderSeoPages(await api("/api/admin/games")); }
 
 function fillSettings(settings) {
   $("#maintenanceMode").checked = settings.maintenanceMode;
@@ -128,6 +149,7 @@ async function loadAdmins() { renderAdmins(await api("/api/admin/admins")); }
 const actionLabels = {
   "user.update": "تعديل مستخدم", "user.delete": "حذف مستخدم", "user.sessions.revoke": "إلغاء جلسات",
   "room.end": "إنهاء غرفة", "room.delete": "حذف غرفة", "site.settings.update": "تحديث الموقع",
+  "game.seo.update": "تحديث صفحة لعبة وSEO",
   "admin.upsert": "تحديث مشرف", "admin.remove": "إزالة مشرف",
 };
 
@@ -144,10 +166,10 @@ async function loadDashboard() {
   showGate("app");
   renderOverview();
   fillSettings(state.overview.settings);
-  const [users, rooms, admins, audit] = await Promise.all([
-    api("/api/admin/users?limit=100"), api("/api/admin/rooms"), api("/api/admin/admins"), api("/api/admin/audit"),
+  const [users, rooms, games, admins, audit] = await Promise.all([
+    api("/api/admin/users?limit=100"), api("/api/admin/rooms"), api("/api/admin/games"), api("/api/admin/admins"), api("/api/admin/audit"),
   ]);
-  renderUsers(users); renderRooms(rooms); renderAdmins(admins); renderAudit(audit);
+  renderUsers(users); renderRooms(rooms); renderSeoPages(games); renderAdmins(admins); renderAudit(audit);
 }
 
 function openUserDialog(userId) {
@@ -181,6 +203,20 @@ function bindEvents() {
   $("#userSearch").addEventListener("keydown", (event) => { if (event.key === "Enter") loadUsers().catch((error) => toast(error.message)); });
   $("#reloadRoomsButton").addEventListener("click", () => loadRooms().catch((error) => toast(error.message)));
   $("#reloadAuditButton").addEventListener("click", () => loadAudit().catch((error) => toast(error.message)));
+
+  $("#seoPages").addEventListener("submit", async (event) => {
+    const form = event.target.closest("[data-seo-game]");
+    if (!form) return;
+    event.preventDefault();
+    const values = Object.fromEntries(new FormData(form).entries());
+    const button = event.submitter;
+    if (button) button.disabled = true;
+    try {
+      await api(`/api/admin/games/${form.dataset.seoGame}`, { method: "PATCH", body: JSON.stringify(values) });
+      await loadSeoPages(); await loadAudit(); toast("تم حفظ صفحة اللعبة وبيانات SEO");
+    } catch (error) { toast(error.message); }
+    finally { if (button) button.disabled = false; }
+  });
 
   $("#adminLoginForm").addEventListener("submit", async (event) => {
     event.preventDefault();

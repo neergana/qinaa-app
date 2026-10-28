@@ -15,7 +15,7 @@
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" href="/assets/mark.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="/styles.css?v=26" />
+    <link rel="stylesheet" href="/styles.css?v=27" />
   </head>
   <body>
     <div class="ambient ambient-one"></div>
@@ -45,27 +45,21 @@
               <svg viewBox="0 0 44 44"><path d="M11 30c4-2 5-8 5-13 3 2 5 2 8 0 0 6 2 11 9 13-6 5-16 5-22 0Z"/><path d="M13 13c3 0 5-2 6-5 2 4 5 5 9 3-1 4 1 7 5 9-8 2-15-1-20-7Z"/></svg>
             </div>
             <h1>الحقيقة<br /><em>خلف القناع.</em></h1>
-            <p>خداع، حدس، وتحالفات لا تدوم. اجمع رفاقك واكشف أفراد الظل قبل أن يسيطروا على اللعبة.</p>
-            <div class="hero-actions">
-              <button class="button button-primary button-large" id="createRoomButton" type="button">
-                <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
-                إنشاء غرفة
-              </button>
-              <button class="button button-secondary button-large" id="joinRoomButton" type="button">
-                <svg viewBox="0 0 24 24"><path d="M14 8l4 4-4 4M18 12H7M5 5v14"/></svg>
-                انضمام برمز
-              </button>
-            </div>
-            <button class="text-link" id="watchLiveRoomButton" type="button" hidden>مشاهدة غرفة مباشرة بلا حساب <span>←</span></button>
+            <p>منصة عربية لألعاب الخداع والاستنتاج الاجتماعي. اختر لعبتك، اجمع رفاقك، واكتشف من يخفي الحقيقة.</p>
           </div>
 
-          <section class="rooms-section" aria-labelledby="roomsTitle">
-            <div class="section-heading rooms-heading">
-              <div><span>ادخل الآن</span><h2 id="roomsTitle">الغرف المفتوحة</h2></div>
-              <b class="live-rooms-count"><i></i><span id="liveRoomsCount">3 غرف</span></b>
+          <section class="game-selector" aria-labelledby="chooseGameTitle">
+            <div class="section-heading"><div><span>ابدأ من هنا</span><h2 id="chooseGameTitle">اختر لعبتك</h2></div></div>
+            <div class="game-choice-grid">
+              <button class="game-choice-card mafia" data-open-game="mafia" type="button">
+                <span class="game-choice-icon">♛</span><small>5–20 لاعباً</small><h2>أفراد الظل</h2>
+                <p>أدوار سرية، ليل ونهار، نقاش وتصويت لكشف أفراد الظل.</p><b>اعرض اللعبة والغرف <i>←</i></b>
+              </button>
+              <button class="game-choice-card imposter" data-open-game="imposter" type="button">
+                <span class="game-choice-icon">؟</span><small>4–18 لاعباً</small><h2>الدخيل</h2>
+                <p>يعرف الجميع الكلمة إلا الدخيل. اسأل، راقب، ثم صوّت سراً.</p><b>اعرض اللعبة والغرف <i>←</i></b>
+              </button>
             </div>
-            <p class="rooms-lede">شاهد أي غرفة عامة فوراً ومن دون حساب، أو سجّل حساب لاعب للانضمام إلى الجولة.</p>
-            <div id="roomDirectory" class="room-directory"></div>
           </section>
 
           <div class="section-heading">
@@ -95,6 +89,27 @@
           </footer>
         </section>
 
+        <section class="view game-landing-view" data-view="game-landing">
+          <div class="game-landing-hero" id="gameLandingHero">
+            <button class="icon-button game-back" data-route="home" type="button" aria-label="العودة"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
+            <span class="game-landing-symbol" id="gameLandingSymbol">♛</span>
+            <small id="gameLandingEyebrow">لعبة الأدوار والاستنتاج</small>
+            <h1 id="gameLandingTitle">أفراد الظل</h1>
+            <p id="gameLandingDescription"></p>
+            <div class="hero-actions">
+              <button class="button button-primary button-large" id="createRoomButton" type="button"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>إنشاء غرفة</button>
+              <button class="button button-secondary button-large" id="joinRoomButton" type="button"><svg viewBox="0 0 24 24"><path d="M14 8l4 4-4 4M18 12H7M5 5v14"/></svg>انضمام برمز</button>
+            </div>
+            <button class="text-link" id="watchLiveRoomButton" type="button" hidden>مشاهدة غرفة مباشرة بلا حساب <span>←</span></button>
+          </div>
+          <section class="game-rules-preview" id="gameRulesPreview"></section>
+          <section class="rooms-section" aria-labelledby="roomsTitle">
+            <div class="section-heading rooms-heading"><div><span>ادخل الآن</span><h2 id="roomsTitle">الغرف المفتوحة</h2></div><b class="live-rooms-count"><i></i><span id="liveRoomsCount">0 غرف</span></b></div>
+            <p class="rooms-lede">شاهد أي غرفة عامة فوراً ومن دون حساب، أو سجّل حساب لاعب للانضمام إلى الجولة.</p>
+            <div id="roomDirectory" class="room-directory"></div>
+          </section>
+        </section>
+
         <section class="view" data-view="lobby">
           <div class="room-banner">
             <div class="room-code-block"><small>رمز الغرفة</small><strong id="roomCode">QNA-728</strong></div>
@@ -105,7 +120,7 @@
           </div>
 
           <div class="lobby-title">
-            <div><span class="live-dot"></span><small>الغرفة جاهزة</small><h1>مجلس قِناع</h1></div>
+            <div><span class="live-dot"></span><small id="lobbyRoomKicker">الغرفة جاهزة</small><h1 id="lobbyRoomName">مجلس قِناع</h1></div>
             <div class="player-total"><strong id="playerCount">8</strong><span>/ 20</span></div>
           </div>
 
@@ -123,11 +138,14 @@
           </div>
 
           <div class="panel settings-panel">
-            <div class="panel-heading"><h2>إعدادات الجولة</h2><span>توزيع ذكي حسب العدد</span></div>
-            <div class="setting-row"><div class="setting-icon"><svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8ZM19 8v6M16 11h6"/></svg></div><div><strong>الأدوار الأساسية</strong><span>أفراد الظل (2) · المُنقذ · الشيخ · الكشّاف · 3 أبرياء</span></div><b class="ready-tag">تلقائي</b></div>
-            <div class="setting-row"><div class="setting-icon"><svg viewBox="0 0 24 24"><path d="M20.8 4.6a5.5 5.5 0 00-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 00-7.8 7.8l1.1 1.1L12 21l7.7-7.5a5.5 5.5 0 001.1-8.9Z"/></svg></div><div><strong>الخطّابة</strong><span>رابطة القلوب · تربط لاعبين بمصير واحد</span></div><label class="switch"><input id="cupidToggle" type="checkbox"><span></span></label></div>
-            <div class="setting-row"><div class="setting-icon"><svg viewBox="0 0 24 24"><path d="M9 3h6M10 3v5l-5.5 9.5A2.3 2.3 0 006.5 21h11a2.3 2.3 0 002-3.5L14 8V3M7 15h10"/></svg></div><div><strong>الساحرة</strong><span>حارسة الجرعات · إنقاذ وإقصاء</span></div><label class="switch"><input id="witchToggle" type="checkbox"><span></span></label></div>
-            <div class="setting-row"><div class="setting-icon"><svg viewBox="0 0 24 24"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="2.5"/></svg></div><div><strong>عين الليل</strong><span>اسم مقترح · قدرة التجسس قيد الموازنة</span></div><b class="ready-tag">قيد الدراسة</b></div>
+            <div class="panel-heading"><h2 id="settingsTitle">إعدادات الجولة</h2><span id="settingsSubtitle">توزيع ذكي حسب العدد</span></div>
+            <div class="setting-row" data-mafia-setting><div class="setting-icon"><svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8ZM19 8v6M16 11h6"/></svg></div><div><strong>الأدوار الأساسية</strong><span>أفراد الظل · المُنقذ · الشيخ · الكشّاف · الأبرياء</span></div><b class="ready-tag">تلقائي</b></div>
+            <div class="setting-row" data-mafia-setting><div class="setting-icon"><svg viewBox="0 0 24 24"><path d="M20.8 4.6a5.5 5.5 0 00-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 00-7.8 7.8l1.1 1.1L12 21l7.7-7.5a5.5 5.5 0 001.1-8.9Z"/></svg></div><div><strong>الخطّابة</strong><span>رابطة القلوب · تربط لاعبين بمصير واحد</span></div><label class="switch"><input id="cupidToggle" type="checkbox"><span></span></label></div>
+            <div class="setting-row" data-mafia-setting><div class="setting-icon"><svg viewBox="0 0 24 24"><path d="M9 3h6M10 3v5l-5.5 9.5A2.3 2.3 0 006.5 21h11a2.3 2.3 0 002-3.5L14 8V3M7 15h10"/></svg></div><div><strong>الساحرة</strong><span>حارسة الجرعات · إنقاذ وإقصاء</span></div><label class="switch"><input id="witchToggle" type="checkbox"><span></span></label></div>
+            <div class="setting-row" data-mafia-setting><div class="setting-icon"><svg viewBox="0 0 24 24"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="2.5"/></svg></div><div><strong>عين الليل</strong><span>اسم مقترح · قدرة التجسس قيد الموازنة</span></div><b class="ready-tag">قيد الدراسة</b></div>
+            <div class="setting-row" data-imposter-setting hidden><div class="setting-icon">؟</div><div><strong>عدد الدخلاء</strong><span>1 من 4–6 · 2 من 7–12 · 3 من 13–18</span></div><b class="ready-tag">تلقائي</b></div>
+            <div class="setting-row" data-imposter-setting hidden><div class="setting-icon">↔</div><div><strong>الأسئلة والأجوبة</strong><span>دور عشوائي بلا مؤقّت، عبر الصوت أو الدردشة</span></div><b class="ready-tag">بلا مؤقّت</b></div>
+            <div class="setting-row" data-imposter-setting hidden><div class="setting-icon">30</div><div><strong>التصويت السري</strong><span>30 ثانية، وتبقى هوية كل مصوّت مخفية</span></div><b class="ready-tag">30 ثانية</b></div>
             <div class="setting-row"><div class="setting-icon"><svg viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 018 0v3"/></svg></div><div><strong>غرفة خاصة</strong><span>تختفي من الرئيسية ولا تسمح بالمشاهدة</span></div><label class="switch"><input id="privateRoomToggle" type="checkbox"><span></span></label></div>
           </div>
 
@@ -329,6 +347,6 @@
       <div id="toast" class="toast" role="status" aria-live="polite"></div>
     </div>
 
-    <script type="module" src="/js/app.js?v=26"></script>
+    <script type="module" src="/js/app.js?v=27"></script>
   </body>
 </html>

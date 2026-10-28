@@ -8,7 +8,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/admindash/admin.css?v=1" />
+    <link rel="stylesheet" href="/admindash/admin.css?v=2" />
     <title>لوحة إدارة قِناع</title>
   </head>
   <body>
@@ -47,6 +47,7 @@
           <button class="is-active" data-admin-tab="overview"><span>◈</span>نظرة عامة</button>
           <button data-admin-tab="users"><span>♙</span>المستخدمون</button>
           <button data-admin-tab="rooms"><span>⌂</span>الغرف</button>
+          <button data-admin-tab="seo"><span>◎</span>صفحات الألعاب وSEO</button>
           <button data-admin-tab="settings"><span>⚙</span>التحكم بالموقع</button>
           <button data-admin-tab="admins"><span>♛</span>المشرفون</button>
           <button data-admin-tab="audit"><span>↻</span>سجل الإدارة</button>
@@ -62,7 +63,7 @@
         </header>
 
         <nav class="mobile-tabs" aria-label="أقسام الإدارة">
-          <button class="is-active" data-admin-tab="overview">الرئيسية</button><button data-admin-tab="users">المستخدمون</button><button data-admin-tab="rooms">الغرف</button><button data-admin-tab="settings">الموقع</button><button data-admin-tab="admins">المشرفون</button><button data-admin-tab="audit">السجل</button>
+          <button class="is-active" data-admin-tab="overview">الرئيسية</button><button data-admin-tab="users">المستخدمون</button><button data-admin-tab="rooms">الغرف</button><button data-admin-tab="seo">SEO</button><button data-admin-tab="settings">الموقع</button><button data-admin-tab="admins">المشرفون</button><button data-admin-tab="audit">السجل</button>
         </nav>
 
         <section class="admin-view is-active" data-admin-view="overview">
@@ -80,6 +81,11 @@
 
         <section class="admin-view" data-admin-view="rooms">
           <div class="panel table-panel"><div class="panel-title"><div><span>إدارة اللعب</span><h2>كل الغرف</h2></div><button class="secondary-button" id="reloadRoomsButton" type="button">تحديث</button></div><div class="data-list" id="roomsList"></div></div>
+        </section>
+
+        <section class="admin-view" data-admin-view="seo">
+          <div class="panel-title"><div><span>ظهور قِناع في البحث والمشاركة</span><h2>صفحات الألعاب وSEO</h2></div></div>
+          <div class="seo-pages" id="seoPages"></div>
         </section>
 
         <section class="admin-view" data-admin-view="settings">
@@ -115,6 +121,6 @@
     </dialog>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script type="module" src="/admindash/admin.js?v=1"></script>
+    <script type="module" src="/admindash/admin.js?v=2"></script>
   </body>
 </html>

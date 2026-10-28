@@ -17,6 +17,8 @@ export const initialRooms = [
 
 export const state = {
   route: "home",
+  selectedGameType: "mafia",
+  gamePages: [],
   players: [],
   rooms: [],
   activeRoomId: null,
@@ -66,6 +68,10 @@ export const state = {
     dead: [],
   },
   history: [],
+  imposterGame: null,
+  imposterRoleRevealed: false,
+  imposterVoteSelections: [],
+  imposterWordChoice: null,
 };
 
 export function setPlayerName(name) {

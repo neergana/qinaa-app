@@ -2,11 +2,39 @@ const MAX_MESSAGE_LENGTH = 180;
 const SESSION_DAYS = 30;
 const AVATAR_PRESETS = new Set(Array.from({ length: 10 }, (_, index) => `mask-${String(index + 1).padStart(2, "0")}`));
 const BOT_NAMES = ["نادر", "سلمى", "مالك", "ليان", "ياسين", "مريم", "آدم", "نور", "سارة", "عمر", "هبة", "زياد", "رنا", "أيمن", "ندى", "أنس", "جنى", "سامي", "لمى", "كريم"];
+const GAME_TYPES = new Set(["mafia", "imposter"]);
+const IMPOSTER_WORD_CLUSTERS = [
+  ["أسد", "نمر", "فهد", "ضبع", "ذئب", "يغور", "وشق", "فهد ثلجي", "ابن آوى", "كوجر"],
+  ["برتقال", "ليمون", "يوسفي", "جريب فروت", "بوملي", "ليم", "كمكوات", "أترج", "برتقال دموي", "كلمنتينا"],
+  ["مطرقة", "مفك", "كماشة", "منشار", "مثقاب", "مفتاح ربط", "مبرد", "إزميل", "منجلة", "قاطعة"],
+  ["قهوة", "شاي", "كاكاو", "زهورات", "زنجبيل", "قرفة", "سحلب", "يانسون", "نعناع", "بابونج"],
+  ["واتساب", "تيليغرام", "سيغنال", "ماسنجر", "ديسكورد", "فايبر", "سكايب", "لاين", "وي تشات", "سلاك"],
+  ["حافلة", "قطار", "ترام", "مترو", "سيارة أجرة", "عبّارة", "طائرة", "دراجة", "سفينة", "سيارة"],
+];
 const encoder = new TextEncoder();
 
 function clean(value, fallback = "", max = 80) {
   const normalized = String(value || "").replace(/[<>\u0000-\u001f]/g, "").trim().slice(0, max);
   return normalized || fallback;
+}
+
+function escapeMarkup(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]);
+}
+
+function shuffled(values) {
+  const copy = [...values];
+  for (let index = copy.length - 1; index > 0; index -= 1) {
+    const other = Math.floor(Math.random() * (index + 1));
+    [copy[index], copy[other]] = [copy[other], copy[index]];
+  }
+  return copy;
+}
+
+function imposterCountForPlayers(count) {
+  if (count >= 13) return 3;
+  if (count >= 7) return 2;
+  return 1;
 }
 
 function json(data, status = 200, headers = {}) {
@@ -178,6 +206,55 @@ async function siteConfig(env) {
     roomCreationEnabled: values.room_creation_enabled !== "0",
     maintenanceMessage: values.maintenance_message || "قِناع في صيانة قصيرة. سنعود قريباً.",
   };
+}
+
+function publicGamePage(row) {
+  return {
+    gameType: row.game_type,
+    slug: row.slug,
+    name: row.name,
+    eyebrow: row.eyebrow,
+    shortDescription: row.short_description,
+    metaTitle: row.meta_title,
+    metaDescription: row.meta_description,
+    keywords: row.keywords,
+    ogTitle: row.og_title,
+    ogDescription: row.og_description,
+    url: `https://qinaaapp.com/games/${row.slug}`,
+    updatedAt: row.updated_at,
+  };
+}
+
+async function listGamePages(env) {
+  const result = await env.DB.prepare("SELECT * FROM game_pages ORDER BY CASE game_type WHEN 'mafia' THEN 0 ELSE 1 END").all();
+  return result.results.map(publicGamePage);
+}
+
+async function serveGameSeoPage(request, env, slug) {
+  const row = await env.DB.prepare("SELECT * FROM game_pages WHERE slug = ? LIMIT 1").bind(slug).first();
+  if (!row) return env.ASSETS.fetch(request);
+  const page = publicGamePage(row);
+  const indexUrl = new URL("/index.html", request.url);
+  const asset = await env.ASSETS.fetch(new Request(indexUrl, { headers: request.headers }));
+  let html = await asset.text();
+  const canonical = `${new URL(request.url).origin}/games/${page.slug}`;
+  html = html
+    .replace(/<title>.*?<\/title>/s, `<title>${escapeMarkup(page.metaTitle)}</title>`)
+    .replace(/<meta name="description" content="[^"]*"\s*\/>/, `<meta name="description" content="${escapeMarkup(page.metaDescription)}" />`)
+    .replace(/<meta property="og:title" content="[^"]*"\s*\/>/, `<meta property="og:title" content="${escapeMarkup(page.ogTitle)}" />`)
+    .replace(/<meta property="og:description" content="[^"]*"\s*\/>/, `<meta property="og:description" content="${escapeMarkup(page.ogDescription)}" />`)
+    .replace(/<meta property="og:url" content="[^"]*"\s*\/>/, `<meta property="og:url" content="${escapeMarkup(canonical)}" />`)
+    .replace(/<link rel="canonical" href="[^"]*"\s*\/>/, `<link rel="canonical" href="${escapeMarkup(canonical)}" />`)
+    .replace("</head>", `<meta name="keywords" content="${escapeMarkup(page.keywords)}" />\n    <meta property="og:type" content="website" />\n    <script type="application/ld+json">${JSON.stringify({ "@context": "https://schema.org", "@type": "VideoGame", name: page.name, description: page.metaDescription, inLanguage: "ar", url: canonical, applicationCategory: "Game" }).replaceAll("<", "\\u003c")}</script>\n  </head>`);
+  return new Response(html, { status: asset.status, headers: { "Content-Type": "text/html; charset=UTF-8", "Cache-Control": "public, max-age=300" } });
+}
+
+async function serveSitemap(request, env) {
+  const origin = new URL(request.url).origin;
+  const pages = await listGamePages(env);
+  const urls = ["/", "/rules", ...pages.map((page) => `/games/${page.slug}`)];
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls.map((path) => `<url><loc>${escapeMarkup(`${origin}${path}`)}</loc></url>`).join("")}</urlset>`;
+  return new Response(xml, { headers: { "Content-Type": "application/xml; charset=UTF-8", "Cache-Control": "public, max-age=300" } });
 }
 
 async function auditAdmin(env, adminUserId, action, targetType, targetId = null, details = null) {
@@ -426,7 +503,7 @@ async function oauthCallback(request, env, provider) {
 }
 
 function clientRoom(row) {
-  return { id: row.id, code: row.code, name: row.name, status: row.status === "playing" ? "جولة جارية" : "بانتظار اللاعبين", phase: row.status === "playing" ? "night" : "day", players: Number(row.players || 0), capacity: Number(row.capacity || 20), spectators: 0, private: Boolean(row.is_private), hostUserId: row.host_user_id };
+  return { id: row.id, code: row.code, name: row.name, gameType: row.game_type || "mafia", status: row.status === "playing" ? "جولة جارية" : "بانتظار اللاعبين", phase: row.status === "playing" ? "night" : "day", players: Number(row.players || 0), capacity: Number(row.capacity || 20), spectators: 0, private: Boolean(row.is_private), hostUserId: row.host_user_id };
 }
 
 function isBotId(userId) {
@@ -479,15 +556,27 @@ async function replaceMemberWithBot(env, room, targetUserId) {
   if (!member || isBotId(targetUserId)) return null;
   const botId = await addBotMember(env, room.id, member.round_id, { role: member.role, alive: Boolean(member.alive) });
   if (!botId) return null;
+  if (room.game_type === "imposter" && member.round_id) {
+    const stateRow = await env.DB.prepare("SELECT question_order FROM imposter_round_state WHERE round_id = ? LIMIT 1").bind(member.round_id).first();
+    let order = [];
+    try { order = JSON.parse(stateRow?.question_order || "[]"); } catch (_) { order = []; }
+    order = order.map((userId) => userId === targetUserId ? botId : userId);
+    await env.DB.batch([
+      env.DB.prepare("UPDATE imposter_assignments SET user_id = ?, ready_at = COALESCE(ready_at, ?) WHERE round_id = ? AND user_id = ?").bind(botId, new Date().toISOString(), member.round_id, targetUserId),
+      env.DB.prepare("UPDATE imposter_ballots SET voter_user_id = ? WHERE round_id = ? AND voter_user_id = ?").bind(botId, member.round_id, targetUserId),
+      env.DB.prepare("UPDATE imposter_round_state SET question_order = ?, updated_at = ? WHERE round_id = ?").bind(JSON.stringify(order), new Date().toISOString(), member.round_id),
+    ]);
+  }
   await env.DB.prepare("DELETE FROM room_members WHERE room_id = ? AND user_id = ?").bind(room.id, targetUserId).run();
   return botId;
 }
 
-async function listRooms(env) {
+async function listRooms(url, env) {
+  const gameType = GAME_TYPES.has(url.searchParams.get("game")) ? url.searchParams.get("game") : null;
   const result = await env.DB.prepare(`
     SELECT r.*, COUNT(m.user_id) AS players FROM rooms r LEFT JOIN room_members m ON m.room_id = r.id
-    WHERE r.ended_at IS NULL AND r.is_private = 0 GROUP BY r.id ORDER BY r.created_at DESC LIMIT 30
-  `).all();
+    WHERE r.ended_at IS NULL AND r.is_private = 0 AND (? IS NULL OR r.game_type = ?) GROUP BY r.id ORDER BY r.created_at DESC LIMIT 30
+  `).bind(gameType, gameType).all();
   return json({ rooms: result.results.map(clientRoom) });
 }
 
@@ -520,6 +609,7 @@ async function createRoom(request, env, user) {
   if (!config.roomCreationEnabled) return json({ error: "إنشاء الغرف متوقف مؤقتاً من الإدارة." }, 503);
   let input = {};
   try { input = await request.json(); } catch (_) { /* Defaults are valid. */ }
+  const gameType = GAME_TYPES.has(input.gameType) ? input.gameType : "mafia";
   let code;
   for (let attempt = 0; attempt < 30; attempt += 1) {
     const candidate = `QNA-${Math.floor(100 + Math.random() * 900)}`;
@@ -529,8 +619,10 @@ async function createRoom(request, env, user) {
   const roomId = crypto.randomUUID();
   const roundId = crypto.randomUUID();
   const now = new Date().toISOString();
+  const capacity = gameType === "imposter" ? 18 : 20;
+  const defaultName = gameType === "imposter" ? `مجلس الدخيل · ${user.display_name}` : `غرفة ${user.display_name}`;
   await env.DB.batch([
-    env.DB.prepare("INSERT INTO rooms (id, code, name, host_user_id, is_private, capacity, created_at) VALUES (?, ?, ?, ?, ?, 20, ?)").bind(roomId, code, clean(input.name, `غرفة ${user.display_name}`, 60), user.id, input.private ? 1 : 0, now),
+    env.DB.prepare("INSERT INTO rooms (id, code, name, host_user_id, is_private, capacity, game_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").bind(roomId, code, clean(input.name, defaultName, 60), user.id, input.private ? 1 : 0, capacity, gameType, now),
     env.DB.prepare("INSERT INTO rounds (id, room_id, number, status, created_at) VALUES (?, ?, 1, 'active', ?)").bind(roundId, roomId, now),
     env.DB.prepare("INSERT INTO room_members (room_id, user_id, round_id, alive, joined_at) VALUES (?, ?, ?, 1, ?)").bind(roomId, user.id, roundId, now),
   ]);
@@ -608,6 +700,262 @@ function roleDeck(count, options = {}) {
   return deck;
 }
 
+async function activeImposterContext(env, code) {
+  return env.DB.prepare(`
+    SELECT r.id AS room_id, r.code, r.host_user_id, r.status AS room_status, r.ended_at,
+      rd.id AS round_id, rd.number, s.phase, s.secret_word, s.candidate_words, s.question_order,
+      s.current_index, s.turn_stage, s.imposter_count, s.vote_deadline, s.results_json
+    FROM rooms r JOIN rounds rd ON rd.room_id = r.id
+    LEFT JOIN imposter_round_state s ON s.round_id = rd.id
+    WHERE r.code = ? AND r.game_type = 'imposter' AND rd.status = 'active'
+    ORDER BY rd.number DESC LIMIT 1
+  `).bind(code).first();
+}
+
+async function startImposterRound(env, room, round, user) {
+  const members = await env.DB.prepare(`
+    SELECT m.user_id FROM room_members m WHERE m.room_id = ? AND m.user_id NOT LIKE 'qinaa-bot-%' ORDER BY m.joined_at
+  `).bind(room.id).all();
+  const playerIds = members.results.map((member) => member.user_id);
+  if (playerIds.length < 4) return json({ error: "تحتاج لعبة الدخيل إلى أربعة لاعبين على الأقل." }, 409);
+  if (playerIds.length > 18) return json({ error: "الحد الأقصى للعبة الدخيل هو 18 لاعباً." }, 409);
+  const imposterCount = imposterCountForPlayers(playerIds.length);
+  const imposters = new Set(shuffled(playerIds).slice(0, imposterCount));
+  const cluster = IMPOSTER_WORD_CLUSTERS[Math.floor(Math.random() * IMPOSTER_WORD_CLUSTERS.length)];
+  const secretWord = cluster[Math.floor(Math.random() * cluster.length)];
+  const candidateCount = imposterCount === 1 ? 6 : imposterCount === 2 ? 8 : 10;
+  const candidates = shuffled([secretWord, ...shuffled(cluster.filter((word) => word !== secretWord)).slice(0, candidateCount - 1)]);
+  const questionOrder = shuffled(playerIds);
+  const now = new Date().toISOString();
+  await env.DB.batch([
+    env.DB.prepare(`
+      INSERT INTO imposter_round_state
+        (round_id, phase, secret_word, candidate_words, question_order, current_index, turn_stage, imposter_count, created_at, updated_at)
+      VALUES (?, 'reveal', ?, ?, ?, 0, 'question', ?, ?, ?)
+    `).bind(round.id, secretWord, JSON.stringify(candidates), JSON.stringify(questionOrder), imposterCount, now, now),
+    ...playerIds.map((userId) => env.DB.prepare(`
+      INSERT INTO imposter_assignments (round_id, user_id, is_imposter) VALUES (?, ?, ?)
+    `).bind(round.id, userId, imposters.has(userId) ? 1 : 0)),
+    ...playerIds.map((userId) => env.DB.prepare("UPDATE room_members SET role = ?, alive = 1, round_id = ? WHERE room_id = ? AND user_id = ?")
+      .bind(imposters.has(userId) ? "الدخيل" : "عارف الكلمة", round.id, room.id, userId)),
+    env.DB.prepare("UPDATE rooms SET status = 'playing' WHERE id = ?").bind(room.id),
+  ]);
+  return json({ started: true, gameType: "imposter", imposterCount, role: imposters.has(user.id) ? "الدخيل" : "عارف الكلمة" });
+}
+
+async function runImposterBotActions(env, context) {
+  if (!context) return context;
+  let current = context;
+  if (current.phase === "reveal") {
+    const counts = await env.DB.prepare("SELECT COUNT(*) AS total, SUM(CASE WHEN ready_at IS NOT NULL THEN 1 ELSE 0 END) AS ready FROM imposter_assignments WHERE round_id = ?").bind(current.round_id).first();
+    if (Number(counts.ready || 0) >= Number(counts.total || 0)) {
+      await env.DB.prepare("UPDATE imposter_round_state SET phase = 'questions', updated_at = ? WHERE round_id = ?").bind(new Date().toISOString(), current.round_id).run();
+      current = await activeImposterContext(env, current.code);
+    }
+  }
+  for (let guard = 0; guard < 24 && current.phase === "questions"; guard += 1) {
+    const order = JSON.parse(current.question_order || "[]");
+    const index = Number(current.current_index || 0);
+    const actorId = current.turn_stage === "question" ? order[index % order.length] : order[(index + 1) % order.length];
+    if (!isBotId(actorId)) break;
+    const now = new Date().toISOString();
+    if (current.turn_stage === "question") {
+      await env.DB.prepare("UPDATE imposter_round_state SET turn_stage = 'answer', updated_at = ? WHERE round_id = ?").bind(now, current.round_id).run();
+    } else if (index + 1 >= order.length) {
+      await env.DB.prepare("UPDATE imposter_round_state SET phase = 'vote', vote_deadline = ?, updated_at = ? WHERE round_id = ?")
+        .bind(new Date(Date.now() + 30000).toISOString(), now, current.round_id).run();
+    } else {
+      await env.DB.prepare("UPDATE imposter_round_state SET current_index = ?, turn_stage = 'question', updated_at = ? WHERE round_id = ?").bind(index + 1, now, current.round_id).run();
+    }
+    current = await activeImposterContext(env, current.code);
+  }
+  if (current.phase === "vote") {
+    const bots = await env.DB.prepare(`
+      SELECT a.user_id, a.is_imposter FROM imposter_assignments a
+      LEFT JOIN imposter_ballots b ON b.round_id = a.round_id AND b.voter_user_id = a.user_id
+      WHERE a.round_id = ? AND a.user_id LIKE 'qinaa-bot-%' AND b.voter_user_id IS NULL
+    `).bind(current.round_id).all();
+    const players = (await env.DB.prepare("SELECT user_id FROM room_members WHERE room_id = ?").bind(current.room_id).all()).results.map((row) => row.user_id);
+    const candidates = JSON.parse(current.candidate_words || "[]");
+    const now = new Date().toISOString();
+    const statements = [];
+    bots.results.forEach((bot) => {
+      const selections = shuffled(players.filter((userId) => userId !== bot.user_id)).slice(0, Number(current.imposter_count || 1));
+      statements.push(env.DB.prepare("INSERT OR IGNORE INTO imposter_ballots (round_id, voter_user_id, selections_json, confirmed_at) VALUES (?, ?, ?, ?)").bind(current.round_id, bot.user_id, JSON.stringify(selections), now));
+      if (bot.is_imposter) statements.push(env.DB.prepare("UPDATE imposter_assignments SET word_choice = ?, word_confirmed_at = ? WHERE round_id = ? AND user_id = ? AND word_confirmed_at IS NULL").bind(candidates[Math.floor(Math.random() * candidates.length)] || null, now, current.round_id, bot.user_id));
+    });
+    if (statements.length) await env.DB.batch(statements);
+  }
+  return current;
+}
+
+async function maybeFinalizeImposter(env, context) {
+  if (!context || context.phase !== "vote") return context;
+  const now = new Date();
+  const deadlineReached = context.vote_deadline && new Date(context.vote_deadline) <= now;
+  const totals = await env.DB.prepare(`
+    SELECT
+      (SELECT COUNT(*) FROM room_members WHERE room_id = ?) AS players,
+      (SELECT COUNT(*) FROM imposter_ballots WHERE round_id = ?) AS ballots,
+      (SELECT COUNT(*) FROM imposter_assignments WHERE round_id = ? AND is_imposter = 1 AND word_confirmed_at IS NOT NULL) AS word_choices
+  `).bind(context.room_id, context.round_id, context.round_id).first();
+  const complete = Number(totals.ballots || 0) >= Number(totals.players || 0) && Number(totals.word_choices || 0) >= Number(context.imposter_count || 0);
+  if (!deadlineReached && !complete) return context;
+
+  const [ballots, assignments] = await Promise.all([
+    env.DB.prepare("SELECT selections_json FROM imposter_ballots WHERE round_id = ?").bind(context.round_id).all(),
+    env.DB.prepare("SELECT user_id, is_imposter, word_choice FROM imposter_assignments WHERE round_id = ?").bind(context.round_id).all(),
+  ]);
+  const voteCounts = {};
+  ballots.results.forEach((ballot) => {
+    let selections = [];
+    try { selections = JSON.parse(ballot.selections_json); } catch (_) { selections = []; }
+    selections.forEach((userId) => { voteCounts[userId] = Number(voteCounts[userId] || 0) + 1; });
+  });
+  const ranked = Object.entries(voteCounts).sort((left, right) => right[1] - left[1]);
+  const limit = Number(context.imposter_count || 1);
+  const cutoff = ranked[limit - 1]?.[1] || 0;
+  const above = ranked.filter(([, count]) => count > cutoff).map(([userId]) => userId);
+  const tiedAtCutoff = ranked.filter(([, count]) => count === cutoff && cutoff > 0);
+  const accused = above.length + tiedAtCutoff.length === limit ? [...above, ...tiedAtCutoff.map(([userId]) => userId)] : above;
+  const imposters = assignments.results.filter((entry) => entry.is_imposter).map((entry) => entry.user_id);
+  const wordChoices = Object.fromEntries(assignments.results.filter((entry) => entry.is_imposter).map((entry) => [entry.user_id, entry.word_choice || null]));
+  const allCaught = imposters.every((userId) => accused.includes(userId));
+  const allWrong = imposters.every((userId) => wordChoices[userId] !== context.secret_word);
+  const winner = allCaught && allWrong ? "knowers" : "imposters";
+  const results = { secretWord: context.secret_word, imposters, accused, voteCounts, wordChoices, winner, tieAtCutoff: accused.length < limit };
+  await env.DB.prepare("UPDATE imposter_round_state SET phase = 'results', results_json = ?, updated_at = ? WHERE round_id = ?")
+    .bind(JSON.stringify(results), now.toISOString(), context.round_id).run();
+  return { ...context, phase: "results", results_json: JSON.stringify(results) };
+}
+
+async function imposterState(request, env, code) {
+  let context = await activeImposterContext(env, code);
+  if (!context || context.ended_at || !context.phase) return json({ error: "لم تبدأ جولة الدخيل بعد." }, 409);
+  context = await runImposterBotActions(env, context);
+  context = await activeImposterContext(env, code);
+  context = await maybeFinalizeImposter(env, context);
+  const user = await getUser(request, env);
+  const members = await env.DB.prepare(`
+    SELECT u.id, u.display_name, u.avatar_type, u.avatar_value, CASE WHEN r.host_user_id = u.id THEN 1 ELSE 0 END AS is_host
+    FROM room_members m JOIN users u ON u.id = m.user_id JOIN rooms r ON r.id = m.room_id
+    WHERE m.room_id = ? ORDER BY m.joined_at
+  `).bind(context.room_id).all();
+  const assignment = user ? await env.DB.prepare("SELECT * FROM imposter_assignments WHERE round_id = ? AND user_id = ? LIMIT 1").bind(context.round_id, user.id).first() : null;
+  const ballot = user ? await env.DB.prepare("SELECT selections_json, confirmed_at FROM imposter_ballots WHERE round_id = ? AND voter_user_id = ? LIMIT 1").bind(context.round_id, user.id).first() : null;
+  const order = JSON.parse(context.question_order || "[]");
+  const askerId = order.length ? order[Number(context.current_index || 0) % order.length] : null;
+  const answererId = order.length ? order[(Number(context.current_index || 0) + 1) % order.length] : null;
+  const secondsRemaining = context.phase === "vote" && context.vote_deadline ? Math.max(0, Math.ceil((new Date(context.vote_deadline).getTime() - Date.now()) / 1000)) : null;
+  let selections = [];
+  try { selections = ballot ? JSON.parse(ballot.selections_json) : []; } catch (_) { selections = []; }
+  const payload = {
+    gameType: "imposter",
+    round: Number(context.number || 1),
+    phase: context.phase,
+    imposterCount: Number(context.imposter_count || 1),
+    currentIndex: Number(context.current_index || 0),
+    totalTurns: order.length,
+    turnStage: context.turn_stage,
+    askerId,
+    answererId,
+    voteSecondsRemaining: secondsRemaining,
+    players: members.results.map((member) => ({ id: member.id, name: member.display_name, avatarType: member.avatar_type, avatarValue: member.avatar_value, host: Boolean(member.is_host) })),
+    me: assignment ? {
+      id: user.id,
+      role: assignment.is_imposter ? "الدخيل" : "عارف الكلمة",
+      secretWord: assignment.is_imposter ? null : context.secret_word,
+      candidates: assignment.is_imposter && context.phase === "vote" ? JSON.parse(context.candidate_words || "[]") : [],
+      ready: Boolean(assignment.ready_at),
+      wordChoice: assignment.word_choice || null,
+      wordConfirmed: Boolean(assignment.word_confirmed_at),
+      voteSelections: selections,
+      voteConfirmed: Boolean(ballot?.confirmed_at),
+    } : null,
+    results: context.phase === "results" && context.results_json ? JSON.parse(context.results_json) : null,
+  };
+  return json(payload);
+}
+
+async function imposterReady(env, code, user) {
+  const context = await activeImposterContext(env, code);
+  if (!context || context.phase !== "reveal") return json({ error: "مرحلة كشف الدور انتهت." }, 409);
+  const assignment = await env.DB.prepare("SELECT 1 FROM imposter_assignments WHERE round_id = ? AND user_id = ?").bind(context.round_id, user.id).first();
+  if (!assignment) return json({ error: "أنت تشاهد الغرفة ولست لاعباً فيها." }, 403);
+  const now = new Date().toISOString();
+  await env.DB.prepare("UPDATE imposter_assignments SET ready_at = COALESCE(ready_at, ?) WHERE round_id = ? AND user_id = ?").bind(now, context.round_id, user.id).run();
+  const counts = await env.DB.prepare("SELECT COUNT(*) AS total, SUM(CASE WHEN ready_at IS NOT NULL THEN 1 ELSE 0 END) AS ready FROM imposter_assignments WHERE round_id = ?").bind(context.round_id).first();
+  if (Number(counts.ready || 0) >= Number(counts.total || 0)) {
+    await env.DB.prepare("UPDATE imposter_round_state SET phase = 'questions', updated_at = ? WHERE round_id = ?").bind(now, context.round_id).run();
+  }
+  return json({ ready: true, allReady: Number(counts.ready || 0) >= Number(counts.total || 0) });
+}
+
+async function imposterAdvanceTurn(request, env, code, user) {
+  const context = await activeImposterContext(env, code);
+  if (!context || context.phase !== "questions") return json({ error: "ليست هذه مرحلة الأسئلة." }, 409);
+  let input = {};
+  try { input = await request.json(); } catch (_) { /* Invalid action below. */ }
+  const order = JSON.parse(context.question_order || "[]");
+  const currentIndex = Number(context.current_index || 0);
+  const askerId = order[currentIndex % order.length];
+  const answererId = order[(currentIndex + 1) % order.length];
+  const now = new Date().toISOString();
+  if (context.turn_stage === "question") {
+    if (input.action !== "question_done" || user.id !== askerId) return json({ error: "السائل الحالي وحده يؤكد انتهاء سؤاله." }, 403);
+    await env.DB.prepare("UPDATE imposter_round_state SET turn_stage = 'answer', updated_at = ? WHERE round_id = ?").bind(now, context.round_id).run();
+    return json({ advanced: true, turnStage: "answer" });
+  }
+  if (input.action !== "answer_done" || user.id !== answererId) return json({ error: "المجيب الحالي وحده يؤكد انتهاء جوابه." }, 403);
+  if (currentIndex + 1 >= order.length) {
+    const deadline = new Date(Date.now() + 30000).toISOString();
+    await env.DB.prepare("UPDATE imposter_round_state SET phase = 'vote', vote_deadline = ?, updated_at = ? WHERE round_id = ?").bind(deadline, now, context.round_id).run();
+    return json({ advanced: true, phase: "vote", voteDeadline: deadline });
+  }
+  await env.DB.prepare("UPDATE imposter_round_state SET current_index = ?, turn_stage = 'question', updated_at = ? WHERE round_id = ?").bind(currentIndex + 1, now, context.round_id).run();
+  return json({ advanced: true, currentIndex: currentIndex + 1, turnStage: "question" });
+}
+
+async function imposterSubmitVote(request, env, code, user) {
+  let context = await activeImposterContext(env, code);
+  context = await maybeFinalizeImposter(env, context);
+  if (!context || context.phase !== "vote") return json({ error: "صندوق التصويت غير مفتوح." }, 409);
+  let input = {};
+  try { input = await request.json(); } catch (_) { return json({ error: "التصويت غير صالح." }, 400); }
+  const assignment = await env.DB.prepare("SELECT 1 FROM imposter_assignments WHERE round_id = ? AND user_id = ?").bind(context.round_id, user.id).first();
+  if (!assignment) return json({ error: "المشاهد لا يملك حق التصويت." }, 403);
+  const existing = await env.DB.prepare("SELECT 1 FROM imposter_ballots WHERE round_id = ? AND voter_user_id = ?").bind(context.round_id, user.id).first();
+  if (existing) return json({ error: "تم تأكيد صوتك ولا يمكن تغييره." }, 409);
+  const selections = [...new Set(Array.isArray(input.selections) ? input.selections.map(String) : [])];
+  if (selections.length !== Number(context.imposter_count)) return json({ error: `اختر ${context.imposter_count} من المشتبه بهم ثم أكّد.` }, 400);
+  if (selections.includes(user.id)) return json({ error: "لا يمكنك التصويت لنفسك." }, 400);
+  const placeholders = selections.map(() => "?").join(",");
+  const valid = await env.DB.prepare(`SELECT COUNT(*) AS count FROM room_members WHERE room_id = ? AND user_id IN (${placeholders})`).bind(context.room_id, ...selections).first();
+  if (Number(valid.count || 0) !== selections.length) return json({ error: "أحد الاختيارات غير صالح." }, 400);
+  await env.DB.prepare("INSERT INTO imposter_ballots (round_id, voter_user_id, selections_json, confirmed_at) VALUES (?, ?, ?, ?)")
+    .bind(context.round_id, user.id, JSON.stringify(selections), new Date().toISOString()).run();
+  context = await maybeFinalizeImposter(env, context);
+  return json({ confirmed: true, finished: context.phase === "results" });
+}
+
+async function imposterSubmitWord(request, env, code, user) {
+  let context = await activeImposterContext(env, code);
+  context = await maybeFinalizeImposter(env, context);
+  if (!context || context.phase !== "vote") return json({ error: "اختيار الكلمة متاح أثناء التصويت فقط." }, 409);
+  const assignment = await env.DB.prepare("SELECT is_imposter, word_confirmed_at FROM imposter_assignments WHERE round_id = ? AND user_id = ?").bind(context.round_id, user.id).first();
+  if (!assignment?.is_imposter) return json({ error: "هذا الاختيار متاح للدخيل فقط." }, 403);
+  if (assignment.word_confirmed_at) return json({ error: "تم تأكيد الكلمة ولا يمكن تغييرها." }, 409);
+  let input = {};
+  try { input = await request.json(); } catch (_) { return json({ error: "اختر كلمة صالحة." }, 400); }
+  const candidates = JSON.parse(context.candidate_words || "[]");
+  const word = clean(input.word, "", 40);
+  if (!candidates.includes(word)) return json({ error: "اختر كلمة من القائمة." }, 400);
+  await env.DB.prepare("UPDATE imposter_assignments SET word_choice = ?, word_confirmed_at = ? WHERE round_id = ? AND user_id = ?")
+    .bind(word, new Date().toISOString(), context.round_id, user.id).run();
+  context = await maybeFinalizeImposter(env, context);
+  return json({ confirmed: true, finished: context.phase === "results" });
+}
+
 async function startRoom(request, env, code, user) {
   const config = await siteConfig(env);
   if (config.maintenanceMode) return json({ error: config.maintenanceMessage }, 503);
@@ -618,6 +966,7 @@ async function startRoom(request, env, code, user) {
   let input = {};
   try { input = await request.json(); } catch (_) { /* Optional settings. */ }
   const round = await env.DB.prepare("SELECT id FROM rounds WHERE room_id = ? AND status = 'active' ORDER BY number DESC LIMIT 1").bind(room.id).first();
+  if (room.game_type === "imposter") return startImposterRound(env, room, round, user);
   const botsAdded = await fillRoomWithBots(env, room.id, round?.id, 5);
   const members = await env.DB.prepare("SELECT user_id FROM room_members WHERE room_id = ? ORDER BY joined_at").bind(room.id).all();
   if (members.results.length < 5) return json({ error: "تعذر تجهيز العدد الأدنى من اللاعبين." }, 409);
@@ -645,7 +994,7 @@ async function myRoomState(env, code, user) {
     SELECT u.id, u.display_name AS name FROM room_members m JOIN users u ON u.id = m.user_id
     WHERE m.room_id = ? AND m.user_id != ? AND m.role = 'أفراد الظل'
   `).bind(room.id, user.id).all()).results : [];
-  return json({ status: row.status, role: row.role, alive: Boolean(row.alive), partners });
+  return json({ status: row.status, gameType: room.game_type || "mafia", role: row.role, alive: Boolean(row.alive), partners });
 }
 
 async function createLiveKitToken(request, env) {
@@ -829,14 +1178,14 @@ async function adminDeleteUser(env, context, targetId) {
 
 async function adminListRooms(env) {
   const result = await env.DB.prepare(`
-    SELECT r.id, r.code, r.name, r.status, r.is_private, r.capacity, r.created_at, r.ended_at,
+    SELECT r.id, r.code, r.name, r.game_type, r.status, r.is_private, r.capacity, r.created_at, r.ended_at,
       u.display_name AS host_name, u.email AS host_email,
       (SELECT COUNT(*) FROM room_members WHERE room_id = r.id) AS members,
       (SELECT COUNT(*) FROM messages WHERE room_id = r.id) AS messages
     FROM rooms r JOIN users u ON u.id = r.host_user_id ORDER BY r.created_at DESC LIMIT 100
   `).all();
   return json({ rooms: result.results.map((room) => ({
-    id: room.id, code: room.code, name: room.name, status: room.status, private: Boolean(room.is_private), capacity: Number(room.capacity),
+    id: room.id, code: room.code, name: room.name, gameType: room.game_type || "mafia", status: room.status, private: Boolean(room.is_private), capacity: Number(room.capacity),
     createdAt: room.created_at, endedAt: room.ended_at, hostName: room.host_name, hostEmail: room.host_email,
     members: Number(room.members || 0), messages: Number(room.messages || 0),
   })) });
@@ -883,6 +1232,39 @@ async function adminUpdateSettings(request, env, context) {
   `).bind(key, value, context.user.id, now)));
   await auditAdmin(env, context.user.id, "site.settings.update", "site", "qinaa", values);
   return json({ ok: true, settings: await siteConfig(env) });
+}
+
+async function adminUpdateGamePage(request, env, context, gameType) {
+  if (!GAME_TYPES.has(gameType)) return json({ error: "اللعبة غير موجودة." }, 404);
+  let input;
+  try { input = await request.json(); } catch (_) { return json({ error: "البيانات المرسلة غير صالحة." }, 400); }
+  const current = await env.DB.prepare("SELECT * FROM game_pages WHERE game_type = ? LIMIT 1").bind(gameType).first();
+  if (!current) return json({ error: "صفحة اللعبة غير موجودة." }, 404);
+  const slug = clean(input.slug, current.slug, 60).toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "");
+  const values = {
+    slug,
+    name: clean(input.name, current.name, 60),
+    eyebrow: clean(input.eyebrow, current.eyebrow, 100),
+    shortDescription: clean(input.shortDescription, current.short_description, 240),
+    metaTitle: clean(input.metaTitle, current.meta_title, 70),
+    metaDescription: clean(input.metaDescription, current.meta_description, 170),
+    keywords: clean(input.keywords, current.keywords, 300),
+    ogTitle: clean(input.ogTitle, current.og_title, 100),
+    ogDescription: clean(input.ogDescription, current.og_description, 200),
+  };
+  if (!slug || values.metaTitle.length < 10 || values.metaDescription.length < 30) return json({ error: "راجع الرابط وعنوان SEO والوصف التعريفي." }, 400);
+  try {
+    await env.DB.prepare(`
+      UPDATE game_pages SET slug = ?, name = ?, eyebrow = ?, short_description = ?, meta_title = ?, meta_description = ?,
+        keywords = ?, og_title = ?, og_description = ?, updated_by = ?, updated_at = ? WHERE game_type = ?
+    `).bind(values.slug, values.name, values.eyebrow, values.shortDescription, values.metaTitle, values.metaDescription, values.keywords, values.ogTitle, values.ogDescription, context.user.id, new Date().toISOString(), gameType).run();
+  } catch (error) {
+    if (String(error).includes("game_pages.slug")) return json({ error: "هذا الرابط مستعمل للعبة أخرى." }, 409);
+    throw error;
+  }
+  await auditAdmin(env, context.user.id, "game.seo.update", "game", gameType, values);
+  const updated = await env.DB.prepare("SELECT * FROM game_pages WHERE game_type = ?").bind(gameType).first();
+  return json({ game: publicGamePage(updated) });
 }
 
 async function adminListAdmins(env) {
@@ -1003,8 +1385,13 @@ export default {
     const url = new URL(request.url);
     const method = request.method;
     try {
+      const gamePageMatch = url.pathname.match(/^\/games\/([a-z0-9-]+)\/?$/i);
+      if (gamePageMatch && method === "GET") return serveGameSeoPage(request, env, gamePageMatch[1].toLowerCase());
+      if (url.pathname === "/robots.txt" && method === "GET") return new Response(`User-agent: *\nAllow: /\nDisallow: /admindash\nDisallow: /api\nSitemap: ${url.origin}/sitemap.xml\n`, { headers: { "Content-Type": "text/plain; charset=UTF-8", "Cache-Control": "public, max-age=3600" } });
+      if (url.pathname === "/sitemap.xml" && method === "GET") return serveSitemap(request, env);
       if (url.pathname === "/api/health") return json({ ok: true, service: "qinaa", database: "d1", chat: "durable-object" });
       if (url.pathname === "/api/site/config" && method === "GET") return json(await siteConfig(env));
+      if (url.pathname === "/api/games" && method === "GET") return json({ games: await listGamePages(env) });
       if (url.pathname.startsWith("/api/admin/")) {
         const ownerOnly = (url.pathname === "/api/admin/admins" && method === "POST") || (/^\/api\/admin\/admins\/[a-f0-9-]+$/i.test(url.pathname) && method === "DELETE");
         const context = await adminContext(request, env, ownerOnly);
@@ -1022,6 +1409,9 @@ export default {
         const adminRoomMatch = url.pathname.match(/^\/api\/admin\/rooms\/([a-f0-9-]+)$/i);
         if (adminRoomMatch && method === "DELETE") return adminDeleteRoom(env, context, adminRoomMatch[1]);
         if (url.pathname === "/api/admin/settings" && method === "PATCH") return adminUpdateSettings(request, env, context);
+        if (url.pathname === "/api/admin/games" && method === "GET") return json({ games: await listGamePages(env) });
+        const adminGameMatch = url.pathname.match(/^\/api\/admin\/games\/(mafia|imposter)$/);
+        if (adminGameMatch && method === "PATCH") return adminUpdateGamePage(request, env, context, adminGameMatch[1]);
         if (url.pathname === "/api/admin/admins" && method === "GET") return adminListAdmins(env);
         if (url.pathname === "/api/admin/admins" && method === "POST") return adminAddAdmin(request, env, context);
         const adminMemberMatch = url.pathname.match(/^\/api\/admin\/admins\/([a-f0-9-]+)$/i);
@@ -1068,7 +1458,7 @@ export default {
         if (!avatar) return new Response("Not found", { status: 404 });
         return new Response(avatar.image_data, { headers: { "Content-Type": avatar.mime_type, "Cache-Control": "public, max-age=3600", ETag: `\"${avatar.updated_at}\"` } });
       }
-      if (url.pathname === "/api/rooms" && method === "GET") return listRooms(env);
+      if (url.pathname === "/api/rooms" && method === "GET") return listRooms(url, env);
       if (url.pathname === "/api/rooms" && method === "POST") {
         const user = await getUser(request, env);
         return user ? createRoom(request, env, user) : json({ error: "يلزم تسجيل الدخول." }, 401);
@@ -1091,6 +1481,18 @@ export default {
         if (action === "me" && method === "GET") return myRoomState(env, code, user);
         if (action === "end" && method === "POST") return endRoom(env, code, user);
         if (action === "leave" && method === "DELETE") return leaveRoom(env, code, user);
+      }
+      const imposterMatch = url.pathname.match(/^\/api\/rooms\/(QNA-\d{3})\/imposter(?:\/(ready|turn|vote|word))?$/i);
+      if (imposterMatch) {
+        const code = imposterMatch[1].toUpperCase();
+        const action = imposterMatch[2];
+        if (!action && method === "GET") return imposterState(request, env, code);
+        const user = await getUser(request, env);
+        if (!user) return json({ error: "يلزم تسجيل الدخول." }, 401);
+        if (action === "ready" && method === "POST") return imposterReady(env, code, user);
+        if (action === "turn" && method === "POST") return imposterAdvanceTurn(request, env, code, user);
+        if (action === "vote" && method === "POST") return imposterSubmitVote(request, env, code, user);
+        if (action === "word" && method === "POST") return imposterSubmitWord(request, env, code, user);
       }
       if (url.pathname === "/api/chat/ws") {
         const room = clean(url.searchParams.get("room"), "", 20).toLowerCase();
