@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#09060f" />
+    <meta name="robots" content="noindex,nofollow" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/admindash/admin.css?v=1" />
+    <title>لوحة إدارة قِناع</title>
+  </head>
+  <body>
+    <div class="ambient ambient-one"></div><div class="ambient ambient-two"></div>
+
+    <main class="gate" id="loginGate">
+      <section class="gate-card">
+        <a class="gate-brand" href="/"><img src="/assets/mark.svg" alt="" /><span><strong>قِناع</strong><small>QINAA ADMIN</small></span></a>
+        <span class="eyebrow">دخول محمي</span>
+        <h1>لوحة الإدارة</h1>
+        <p>سجّل الدخول بحساب إداري معتمد للوصول إلى بيانات المنصة وإعداداتها.</p>
+        <form id="adminLoginForm">
+          <label>البريد أو اسم المستخدم<input id="adminLoginIdentity" autocomplete="username" required /></label>
+          <label>كلمة المرور<input id="adminLoginPassword" type="password" autocomplete="current-password" required /></label>
+          <p class="form-error" id="adminLoginError" role="alert"></p>
+          <button class="primary-button" type="submit">دخول الإدارة</button>
+        </form>
+        <div class="divider"><span>أو</span></div>
+        <a class="google-button" href="/api/auth/google/start?return=/admindash"><b>G</b> المتابعة بحساب Google</a>
+        <a class="back-home" href="/">العودة إلى الموقع</a>
+      </section>
+    </main>
+
+    <main class="gate" id="deniedGate" hidden>
+      <section class="gate-card denied-card">
+        <span class="denied-icon">!</span><h1>الدخول غير مسموح</h1>
+        <p>الحساب مسجل، لكنه لا يملك صلاحية إدارة قِناع.</p>
+        <div class="gate-actions"><button class="secondary-button" id="deniedLogout" type="button">تسجيل الخروج</button><a class="primary-button" href="/">العودة للموقع</a></div>
+      </section>
+    </main>
+
+    <div class="admin-shell" id="adminApp" hidden>
+      <aside class="sidebar">
+        <a class="admin-brand" href="/"><img src="/assets/mark.svg" alt="" /><span><strong>قِناع</strong><small>لوحة الإدارة</small></span></a>
+        <nav class="side-nav" aria-label="أقسام الإدارة">
+          <button class="is-active" data-admin-tab="overview"><span>◈</span>نظرة عامة</button>
+          <button data-admin-tab="users"><span>♙</span>المستخدمون</button>
+          <button data-admin-tab="rooms"><span>⌂</span>الغرف</button>
+          <button data-admin-tab="settings"><span>⚙</span>التحكم بالموقع</button>
+          <button data-admin-tab="admins"><span>♛</span>المشرفون</button>
+          <button data-admin-tab="audit"><span>↻</span>سجل الإدارة</button>
+        </nav>
+        <div class="side-profile"><span id="adminInitial">ق</span><div><strong id="adminName">—</strong><small id="adminRole">—</small></div></div>
+        <button class="side-logout" id="logoutButton" type="button">تسجيل الخروج</button>
+      </aside>
+
+      <section class="workspace">
+        <header class="topbar">
+          <div><span class="page-kicker">QINAA CONTROL</span><h1 id="pageTitle">نظرة عامة</h1></div>
+          <div class="top-actions"><span class="secure-pill">● اتصال آمن</span><button class="icon-button" id="refreshButton" type="button" aria-label="تحديث">↻</button></div>
+        </header>
+
+        <nav class="mobile-tabs" aria-label="أقسام الإدارة">
+          <button class="is-active" data-admin-tab="overview">الرئيسية</button><button data-admin-tab="users">المستخدمون</button><button data-admin-tab="rooms">الغرف</button><button data-admin-tab="settings">الموقع</button><button data-admin-tab="admins">المشرفون</button><button data-admin-tab="audit">السجل</button>
+        </nav>
+
+        <section class="admin-view is-active" data-admin-view="overview">
+          <div class="stats-grid" id="statsGrid"></div>
+          <div class="overview-grid">
+            <article class="panel health-panel"><div class="panel-title"><div><span>حالة النظام</span><h2>الخدمات الأساسية</h2></div><b class="status-badge">تعمل</b></div><div class="service-list"><div><span>Cloudflare Worker</span><b>متصل</b></div><div><span>قاعدة D1</span><b>متصلة</b></div><div><span>المحادثات الحية</span><b>Durable Objects</b></div><div><span>الغرف الصوتية</span><b>LiveKit</b></div></div></article>
+            <article class="panel"><div class="panel-title"><div><span>اختصارات</span><h2>إدارة سريعة</h2></div></div><div class="quick-actions"><button data-go-tab="users">البحث عن مستخدم</button><button data-go-tab="rooms">مراجعة الغرف</button><button data-go-tab="settings">حالة الموقع</button><button data-go-tab="admins">فريق الإدارة</button></div></article>
+          </div>
+        </section>
+
+        <section class="admin-view" data-admin-view="users">
+          <div class="panel toolbar"><div><label class="search-field"><span>بحث</span><input id="userSearch" placeholder="الاسم، البريد أو اسم المستخدم" /></label><label><span>الحالة</span><select id="userStatusFilter"><option value="all">الكل</option><option value="active">نشط</option><option value="suspended">موقوف</option></select></label></div><button class="secondary-button" id="searchUsersButton" type="button">تطبيق</button></div>
+          <div class="panel table-panel"><div class="panel-title"><div><span>قاعدة الحسابات</span><h2>المستخدمون المسجلون</h2></div><b id="usersTotal">0 حساب</b></div><div class="data-list" id="usersList"></div></div>
+        </section>
+
+        <section class="admin-view" data-admin-view="rooms">
+          <div class="panel table-panel"><div class="panel-title"><div><span>إدارة اللعب</span><h2>كل الغرف</h2></div><button class="secondary-button" id="reloadRoomsButton" type="button">تحديث</button></div><div class="data-list" id="roomsList"></div></div>
+        </section>
+
+        <section class="admin-view" data-admin-view="settings">
+          <form class="panel settings-form" id="settingsForm">
+            <div class="panel-title"><div><span>تحكم مباشر</span><h2>حالة موقع قِناع</h2></div></div>
+            <label class="toggle-row"><div><strong>وضع الصيانة</strong><small>يوقف إنشاء الغرف والدخول إلى اللعب مؤقتاً.</small></div><input id="maintenanceMode" type="checkbox" /><i></i></label>
+            <label class="toggle-row"><div><strong>فتح التسجيل</strong><small>السماح بإنشاء حسابات جديدة عادية أو اجتماعية.</small></div><input id="registrationEnabled" type="checkbox" /><i></i></label>
+            <label class="toggle-row"><div><strong>فتح إنشاء الغرف</strong><small>السماح للاعبين بإنشاء غرف جديدة.</small></div><input id="roomCreationEnabled" type="checkbox" /><i></i></label>
+            <label class="message-field"><span>رسالة الصيانة</span><textarea id="maintenanceMessage" maxlength="160" rows="3"></textarea></label>
+            <button class="primary-button" type="submit">حفظ إعدادات الموقع</button>
+          </form>
+        </section>
+
+        <section class="admin-view" data-admin-view="admins">
+          <div class="panel" id="adminInvitePanel"><div class="panel-title"><div><span>للمالك فقط</span><h2>إضافة مشرف</h2></div></div><form class="inline-form" id="addAdminForm"><label><span>بريد الحساب المسجل</span><input id="newAdminEmail" type="email" required placeholder="admin@example.com" /></label><label><span>الصلاحية</span><select id="newAdminRole"><option value="admin">مشرف</option><option value="owner">مالك</option></select></label><button class="primary-button" type="submit">إضافة</button></form></div>
+          <div class="panel table-panel"><div class="panel-title"><div><span>فريق موثوق</span><h2>حسابات الإدارة</h2></div></div><div class="data-list" id="adminsList"></div></div>
+        </section>
+
+        <section class="admin-view" data-admin-view="audit">
+          <div class="panel table-panel"><div class="panel-title"><div><span>أثر كل تغيير</span><h2>سجل إجراءات الإدارة</h2></div><button class="secondary-button" id="reloadAuditButton" type="button">تحديث</button></div><div class="audit-list" id="auditList"></div></div>
+        </section>
+      </section>
+    </div>
+
+    <dialog id="userDialog">
+      <form method="dialog" class="dialog-card" id="userEditForm">
+        <header><div><span>بيانات الحساب</span><h2>تعديل المستخدم</h2></div><button class="dialog-close" id="closeUserDialog" type="button" aria-label="إغلاق">×</button></header>
+        <input id="editUserId" type="hidden" />
+        <div class="form-grid"><label><span>الاسم الظاهر</span><input id="editDisplayName" required /></label><label><span>اسم المستخدم</span><input id="editUsername" required /></label><label><span>البريد الإلكتروني</span><input id="editEmail" type="email" required /></label><label><span>تاريخ الميلاد</span><input id="editBirthDate" type="date" /></label><label><span>حالة الحساب</span><select id="editAccountStatus"><option value="active">نشط</option><option value="suspended">موقوف</option></select></label><label><span>سبب الإيقاف</span><input id="editStatusReason" maxlength="160" /></label></div>
+        <div class="password-note" id="passwordNote"></div>
+        <div class="dialog-actions"><button class="danger-button" id="deleteUserButton" type="button">حذف الحساب</button><button class="secondary-button" id="revokeSessionsButton" type="button">إلغاء الجلسات</button><button class="primary-button" type="submit" value="default">حفظ التعديلات</button></div>
+      </form>
+    </dialog>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script type="module" src="/admindash/admin.js?v=1"></script>
+  </body>
+</html>

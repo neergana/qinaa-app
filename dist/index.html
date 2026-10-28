@@ -4,14 +4,18 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#0c0814" />
-    <meta name="description" content="حارة المافيا — لعبة استنتاج اجتماعي عربية للمتصفح والهاتف." />
-    <title>حارة المافيا</title>
+    <meta name="description" content="قِناع — لعبة استنتاج اجتماعي عربية. الحقيقة خلف القناع." />
+    <meta property="og:title" content="قِناع | QINAA" />
+    <meta property="og:description" content="الحقيقة خلف القناع." />
+    <meta property="og:url" content="https://qinaaapp.com/" />
+    <link rel="canonical" href="https://qinaaapp.com/" />
+    <title>قِناع | QINAA</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" href="/assets/mark.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="/styles.css?v=9" />
+    <link rel="stylesheet" href="/styles.css?v=26" />
   </head>
   <body>
     <div class="ambient ambient-one"></div>
@@ -23,17 +27,9 @@
           <span class="brand-mark" aria-hidden="true">
             <svg viewBox="0 0 44 44" role="img"><path d="M11 30c4-2 5-8 5-13 3 2 5 2 8 0 0 6 2 11 9 13-6 5-16 5-22 0Z"/><path d="M13 13c3 0 5-2 6-5 2 4 5 5 9 3-1 4 1 7 5 9-8 2-15-1-20-7Z"/></svg>
           </span>
-          <span><strong>حارة</strong><small>المافيا</small></span>
+          <span><strong>قِناع</strong><small>QINAA</small></span>
         </button>
         <div class="topbar-actions">
-          <button id="accountButton" class="account-chip" type="button" aria-label="فتح حساب اللاعب">
-            <span id="accountInitial" class="account-initial">؟</span>
-            <span class="account-chip-copy"><b id="accountLabel">حساب لاعب</b><small id="accountSublabel">مطلوب للعب</small></span>
-          </button>
-          <button id="connectionChip" class="connection-chip" type="button" title="تبديل حالة الاتصال التجريبية">
-            <span class="status-dot"></span>
-            <span class="connection-copy"><b>متصل</b><small>محاكاة محلية</small></span>
-          </button>
           <button class="icon-button" id="menuButton" type="button" aria-label="فتح القائمة" aria-expanded="false">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
           </button>
@@ -48,8 +44,8 @@
               <span class="hero-ring"></span>
               <svg viewBox="0 0 44 44"><path d="M11 30c4-2 5-8 5-13 3 2 5 2 8 0 0 6 2 11 9 13-6 5-16 5-22 0Z"/><path d="M13 13c3 0 5-2 6-5 2 4 5 5 9 3-1 4 1 7 5 9-8 2-15-1-20-7Z"/></svg>
             </div>
-            <h1>من يختبئ<br /><em>بين أهل الحارة؟</em></h1>
-            <p>خداع، حدس، وتحالفات لا تدوم. اجمع رفاقك واكتشف المافيا قبل أن تسيطر على المدينة.</p>
+            <h1>الحقيقة<br /><em>خلف القناع.</em></h1>
+            <p>خداع، حدس، وتحالفات لا تدوم. اجمع رفاقك واكشف أفراد الظل قبل أن يسيطروا على اللعبة.</p>
             <div class="hero-actions">
               <button class="button button-primary button-large" id="createRoomButton" type="button">
                 <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
@@ -60,13 +56,7 @@
                 انضمام برمز
               </button>
             </div>
-            <button class="text-link" data-watch-room="majlis" type="button">مشاهدة غرفة مباشرة بلا حساب <span>←</span></button>
-          </div>
-
-          <div class="stat-strip" aria-label="خصائص اللعبة">
-            <div><strong>20</strong><span>لاعباً كحد أقصى</span></div>
-            <div><strong>5+</strong><span>لاعبين للبدء</span></div>
-            <div><strong>∞</strong><span>جولات من الخداع</span></div>
+            <button class="text-link" id="watchLiveRoomButton" type="button" hidden>مشاهدة غرفة مباشرة بلا حساب <span>←</span></button>
           </div>
 
           <section class="rooms-section" aria-labelledby="roomsTitle">
@@ -81,29 +71,33 @@
           <div class="section-heading">
             <div><span>كيف تسير اللعبة؟</span><h2>ليلة تكشف الوجوه</h2></div>
             <button class="icon-button mini" data-route="rules" type="button" aria-label="عرض القواعد">
-              <svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg>
+              <svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>
             </button>
           </div>
           <div class="how-grid">
             <article class="how-card">
               <span class="step-icon purple"><svg viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8Z"/></svg></span>
-              <small>01</small><h3>يحلّ الليل</h3><p>تتحرك الأدوار سراً، وتتفق المافيا على ضحيتها.</p>
+              <small>01</small><h3>يحلّ الليل</h3><p>تتحرك الأدوار سراً، ويتفق أفراد الظل على ضحيتهم.</p>
             </article>
             <article class="how-card">
               <span class="step-icon yellow"><svg viewBox="0 0 24 24"><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6L7 7M17 17l1.4 1.4M18.4 5.6L17 7M7 17l-1.4 1.4"/><circle cx="12" cy="12" r="4"/></svg></span>
-              <small>02</small><h3>تستيقظ الحارة</h3><p>نقاش مفتوح، ثم طابور منظم لمن يريد الدفاع أو الاتهام.</p>
+              <small>02</small><h3>يستيقظ اللاعبون</h3><p>نقاش مفتوح، ثم طابور منظم لمن يريد الدفاع أو الاتهام.</p>
             </article>
             <article class="how-card">
               <span class="step-icon red"><svg viewBox="0 0 24 24"><path d="M12 3v18M5 8h14M7 8l-3 6h6L7 8Zm10 0-3 6h6l-3-6Z"/></svg></span>
               <small>03</small><h3>وقت الحكم</h3><p>تصويت مباشر وحاسم؛ النتائج تظهر، والهويات تبقى مستورة حتى الإغلاق.</p>
             </article>
           </div>
-          <footer class="home-footer"><span>نسخة واجهة تجريبية 0.1</span><b>صُممت لليالي طويلة</b></footer>
+          <footer class="home-footer">
+            <span>qinaaapp.com</span>
+            <nav aria-label="روابط قانونية"><a href="/privacypolicy">الخصوصية</a><a href="/terms">الشروط</a></nav>
+            <b>الحقيقة خلف القناع.</b>
+          </footer>
         </section>
 
         <section class="view" data-view="lobby">
           <div class="room-banner">
-            <div class="room-code-block"><small>رمز الغرفة</small><strong id="roomCode">MAF-728</strong></div>
+            <div class="room-code-block"><small>رمز الغرفة</small><strong id="roomCode">QNA-728</strong></div>
             <button class="copy-button" id="copyCodeButton" type="button" aria-label="نسخ رمز الغرفة">
               <svg viewBox="0 0 24 24"><rect x="8" y="8" width="11" height="11" rx="2"/><path d="M16 8V6a2 2 0 00-2-2H6a2 2 0 00-2 2v8a2 2 0 002 2h2"/></svg>
               <span>نسخ</span>
@@ -111,17 +105,16 @@
           </div>
 
           <div class="lobby-title">
-            <div><span class="live-dot"></span><small>الغرفة جاهزة</small><h1>مجلس الحارة</h1></div>
+            <div><span class="live-dot"></span><small>الغرفة جاهزة</small><h1>مجلس قِناع</h1></div>
             <div class="player-total"><strong id="playerCount">8</strong><span>/ 20</span></div>
           </div>
 
-          <div class="panel players-panel">
+          <div class="panel players-panel lobby-table-panel">
             <div class="panel-heading"><h2>اللاعبون</h2><span>المضيف يشارك بدور سري</span></div>
-            <div id="lobbyPlayers" class="player-list"></div>
-            <button class="button button-ghost full" id="addMockPlayer" type="button">
-              <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
-              إضافة لاعب تجريبي
-            </button>
+            <div class="table-scene">
+              <div class="lobby-table"><strong id="tablePlayerCount">8</strong><span>لاعبين حول الطاولة</span><small>بانتظار بدء الجولة</small></div>
+              <div id="lobbyPlayers" class="table-seats"></div>
+            </div>
           </div>
 
           <div class="panel spectators-panel">
@@ -131,9 +124,10 @@
 
           <div class="panel settings-panel">
             <div class="panel-heading"><h2>إعدادات الجولة</h2><span>توزيع ذكي حسب العدد</span></div>
-            <div class="setting-row"><div class="setting-icon"><svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8ZM19 8v6M16 11h6"/></svg></div><div><strong>الأدوار الأساسية</strong><span>مافيا (2) · طبيب · محقق · 4 مواطنين</span></div><b class="ready-tag">تلقائي</b></div>
-            <div class="setting-row"><div class="setting-icon"><svg viewBox="0 0 24 24"><path d="M20.8 4.6a5.5 5.5 0 00-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 00-7.8 7.8l1.1 1.1L12 21l7.7-7.5a5.5 5.5 0 001.1-8.9Z"/></svg></div><div><strong>كيوبيد</strong><span>يربط عاشقين بمصير واحد</span></div><label class="switch"><input id="cupidToggle" type="checkbox"><span></span></label></div>
-            <div class="setting-row"><div class="setting-icon"><svg viewBox="0 0 24 24"><path d="M9 3h6M10 3v5l-5.5 9.5A2.3 2.3 0 006.5 21h11a2.3 2.3 0 002-3.5L14 8V3M7 15h10"/></svg></div><div><strong>الساحرة</strong><span>جرعة إنقاذ وأخرى للإقصاء</span></div><label class="switch"><input id="witchToggle" type="checkbox"><span></span></label></div>
+            <div class="setting-row"><div class="setting-icon"><svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8ZM19 8v6M16 11h6"/></svg></div><div><strong>الأدوار الأساسية</strong><span>أفراد الظل (2) · المُنقذ · الشيخ · الكشّاف · 3 أبرياء</span></div><b class="ready-tag">تلقائي</b></div>
+            <div class="setting-row"><div class="setting-icon"><svg viewBox="0 0 24 24"><path d="M20.8 4.6a5.5 5.5 0 00-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 00-7.8 7.8l1.1 1.1L12 21l7.7-7.5a5.5 5.5 0 001.1-8.9Z"/></svg></div><div><strong>الخطّابة</strong><span>رابطة القلوب · تربط لاعبين بمصير واحد</span></div><label class="switch"><input id="cupidToggle" type="checkbox"><span></span></label></div>
+            <div class="setting-row"><div class="setting-icon"><svg viewBox="0 0 24 24"><path d="M9 3h6M10 3v5l-5.5 9.5A2.3 2.3 0 006.5 21h11a2.3 2.3 0 002-3.5L14 8V3M7 15h10"/></svg></div><div><strong>الساحرة</strong><span>حارسة الجرعات · إنقاذ وإقصاء</span></div><label class="switch"><input id="witchToggle" type="checkbox"><span></span></label></div>
+            <div class="setting-row"><div class="setting-icon"><svg viewBox="0 0 24 24"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="2.5"/></svg></div><div><strong>عين الليل</strong><span>اسم مقترح · قدرة التجسس قيد الموازنة</span></div><b class="ready-tag">قيد الدراسة</b></div>
             <div class="setting-row"><div class="setting-icon"><svg viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 018 0v3"/></svg></div><div><strong>غرفة خاصة</strong><span>تختفي من الرئيسية ولا تسمح بالمشاهدة</span></div><label class="switch"><input id="privateRoomToggle" type="checkbox"><span></span></label></div>
           </div>
 
@@ -144,8 +138,9 @@
 
           <div class="sticky-action">
             <button class="button button-primary button-large full" id="startGameButton" type="button">
-              <span>بدء الجولة التجريبية</span><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+              <span>بدء الجولة</span><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
             </button>
+            <button class="room-leave-button" id="leaveLobbyButton" type="button">مغادرة الغرفة</button>
             <small id="minimumHint">كل شيء جاهز · 8 لاعبين متصلين</small>
           </div>
         </section>
@@ -153,7 +148,7 @@
         <section class="view game-view" data-view="game">
           <div class="game-status-bar">
             <div><span id="phaseIcon" class="phase-icon"><svg viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8Z"/></svg></span><div><small id="roundLabel">الجولة الأولى</small><strong id="phaseLabel">حلّ الليل</strong></div></div>
-            <div class="timer" id="mainTimer"><span id="timerValue">01:15</span><small>متبقٍ</small></div>
+            <div class="game-status-actions"><button class="game-leave-button" id="leaveGameButton" type="button">خروج</button><div class="timer" id="mainTimer"><span id="timerValue">01:15</span><small>متبقٍ</small></div></div>
           </div>
 
           <div class="phase-progress"><span id="phaseProgress"></span></div>
@@ -163,24 +158,67 @@
           <nav class="game-tabs" aria-label="أقسام الجولة">
             <button class="is-active" data-game-tab="arena" type="button"><svg viewBox="0 0 24 24"><path d="M12 22a10 10 0 100-20 10 10 0 000 20Z"/><path d="M8 12h8M12 8v8"/></svg><span>الساحة</span></button>
             <button data-game-tab="players" type="button"><svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8ZM22 21v-2a4 4 0 00-3-3.9"/></svg><span>اللاعبون</span></button>
-            <button data-game-tab="chat" type="button"><span class="tab-badge" id="chatBadge">2</span><svg viewBox="0 0 24 24"><path d="M21 15a4 4 0 01-4 4H8l-5 3V7a4 4 0 014-4h10a4 4 0 014 4v8Z"/></svg><span>المحادثة</span></button>
             <button data-game-tab="history" type="button"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 109-9 9.7 9.7 0 00-6.7 2.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/></svg><span>السجل</span></button>
           </nav>
         </section>
 
         <section class="view rules-view" data-view="rules">
-          <div class="page-kicker">دليل الحارة</div>
+          <div class="page-kicker">دليل قِناع</div>
           <h1>القواعد، بلا غموض</h1>
           <p class="page-lede">نسخة مختصرة للقواعد المعتمدة في هذا النموذج.</p>
           <div class="rules-list">
-            <article><b>01</b><div><h2>الغرفة والأدوار</h2><p>من 5 إلى 20 لاعباً. المضيف لاعب بدور سري، ويحتفظ بإدارة الغرفة بعد موته. يتكيف التوزيع تلقائياً، ويمكن إضافة كيوبيد والساحرة.</p></div></article>
-            <article><b>02</b><div><h2>الليل</h2><p>قناة خاصة صوتاً ونصاً للمافيا. يختار كل دور إجراءه ويؤكده بنفسه، وتنتقل المرحلة فور اكتمال جميع التأكيدات من دون انتظار المؤقت.</p></div></article>
+            <article><b>01</b><div><h2>الغرفة والأدوار</h2><p>من 5 إلى 20 لاعباً. المضيف لاعب بدور سري، ويحتفظ بإدارة الغرفة بعد موته. يتكيف التوزيع تلقائياً، ويمكن إضافة الخطّابة والساحرة.</p></div></article>
+            <article><b>02</b><div><h2>الليل</h2><p>قناة خاصة صوتاً ونصاً لأفراد الظل. يختار كل دور إجراءه ويؤكده بنفسه، وتنتقل المرحلة فور اكتمال جميع التأكيدات من دون انتظار المؤقت.</p></div></article>
             <article><b>03</b><div><h2>النهار والكلام</h2><p>أربع دقائق للنقاش الحر. يبدأ أول طالب للكلام تلقائياً ثم ينتقل الدور حسب الطابور. المتحدث وحده ينهي مداخلته، ولا يستطيع المضيف قطعها.</p></div></article>
             <article><b>04</b><div><h2>التصويت والتعادل</h2><p>يختار كل لاعب ثم يؤكد صوته. يُقصى صاحب أعلى الأصوات مباشرةً. عند التعادل فقط، يدافع كل متعادل منفرداً حتى 90 ثانية ثم تُعاد عملية التصويت مرة واحدة.</p></div></article>
             <article><b>05</b><div><h2>بعد الإقصاء والعودة</h2><p>سجل التصويت محفوظ، واللاعبون الموتى ينتقلون إلى محادثة نصية فقط. عند انقطاع لاعب، يتولى الروبوت مكانه مؤقتاً حتى يعود.</p></div></article>
           </div>
-          <div class="prototype-note"><span>تجريبي</span><p>الصوت والاتصال اللحظي والروبوت معروضة هنا كمحاكاة واجهة فقط؛ لا يتم إرسال صوت أو بيانات إلى خادم في هذه النسخة.</p></div>
+          <div class="prototype-note"><span>متصل</span><p>الحسابات والغرف ورسائل الجولة محفوظة في Cloudflare D1، والصوت المباشر يعمل عبر LiveKit. الميكروفون مطفأ افتراضياً ولا يطلب الإذن إلا عند تشغيله.</p></div>
           <button class="button button-primary full" data-route="home" type="button">العودة إلى البداية</button>
+        </section>
+
+        <section class="view profile-view" data-view="profile">
+          <div class="profile-page-head">
+            <button class="icon-button" data-route="home" type="button" aria-label="العودة"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
+            <div><small>حساب QINAA</small><h1>الملف الشخصي</h1></div>
+          </div>
+          <form id="profileForm" class="profile-form" novalidate>
+            <section class="profile-summary-card">
+              <div id="profileAvatarPreview"></div>
+              <div><strong id="profileSummaryName">لاعب قِناع</strong><span id="profileSummaryEmail"></span></div>
+            </section>
+
+            <section class="profile-panel">
+              <div class="profile-section-title"><div><small>صورتك داخل اللعبة</small><h2>اختر أيقونة القناع</h2></div><span>10 اختيارات</span></div>
+              <div class="profile-avatar-picker" id="profileAvatarPicker" role="radiogroup" aria-label="أيقونة الملف الشخصي"></div>
+            </section>
+
+            <section class="profile-panel profile-fields">
+              <div class="profile-section-title"><div><small>المعلومات العامة</small><h2>بيانات اللاعب</h2></div></div>
+              <label>الاسم الظاهر<input id="profileNameInput" maxlength="40" autocomplete="name" required /></label>
+              <label>اسم المستخدم<input id="profileUsernameInput" maxlength="24" autocomplete="username" required /><small class="field-hint">من 3 إلى 24 حرفاً أو رقماً؛ ويمكن استعمال النقطة والشرطة.</small></label>
+              <label>البريد الإلكتروني<input id="profileEmailInput" type="email" readonly /></label>
+              <fieldset class="profile-birth-field">
+                <legend>تاريخ الميلاد</legend>
+                <div class="birth-selects">
+                  <select id="profileBirthDay" aria-label="يوم الميلاد" autocomplete="bday-day" required></select>
+                  <select id="profileBirthMonth" aria-label="شهر الميلاد" autocomplete="bday-month" required></select>
+                  <select id="profileBirthYear" aria-label="سنة الميلاد" autocomplete="bday-year" required></select>
+                </div>
+              </fieldset>
+            </section>
+
+            <section class="profile-panel profile-fields">
+              <div class="profile-section-title"><div><small>اختياري</small><h2>تغيير كلمة المرور</h2></div></div>
+              <p class="profile-help">اترك هذه الخانات فارغة إذا لم ترد تغيير كلمة المرور.</p>
+              <label>كلمة المرور الحالية<input id="profileCurrentPassword" type="password" autocomplete="current-password" /></label>
+              <label>كلمة المرور الجديدة<input id="profileNewPassword" type="password" minlength="8" autocomplete="new-password" /></label>
+              <label>تأكيد كلمة المرور الجديدة<input id="profileConfirmPassword" type="password" minlength="8" autocomplete="new-password" /></label>
+            </section>
+
+            <p class="field-error profile-error" id="profileError" role="alert"></p>
+            <button class="button button-primary button-large full profile-save" type="submit">حفظ التغييرات</button>
+          </form>
         </section>
       </main>
 
@@ -192,10 +230,11 @@
 
       <aside class="drawer" id="drawer" aria-hidden="true">
         <div class="drawer-head"><strong>القائمة</strong><button class="icon-button" id="closeMenuButton" type="button" aria-label="إغلاق"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+        <div class="drawer-profile" id="drawerProfile"></div>
         <button data-route="home"><span>الرئيسية</span><small>ابدأ من جديد</small></button>
-        <button data-route="lobby"><span>الغرفة التجريبية</span><small>8 لاعبين</small></button>
+        <button data-route="lobby"><span>غرفتي</span><small>اللاعبون والإعدادات</small></button>
         <button data-route="rules"><span>القواعد</span><small>كل ما يلزمك</small></button>
-        <div class="drawer-foot"><span class="mock-pill">محاكاة محلية</span><p>لا يوجد اتصال بخادم أو قناة صوتية في هذه النسخة.</p></div>
+        <div class="drawer-foot"><span class="mock-pill">QINAA</span><p>الحسابات والغرف والمحادثات متصلة بقاعدة البيانات، والصوت المباشر يعمل عبر LiveKit.</p></div>
       </aside>
       <div class="scrim" id="scrim"></div>
 
@@ -203,7 +242,7 @@
         <form method="dialog" id="joinForm">
           <div class="dialog-grip"></div>
           <div class="dialog-heading"><div><small>انضم إلى رفاقك</small><h2>دخول غرفة</h2></div><button class="icon-button" value="cancel" aria-label="إغلاق"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
-          <label>رمز الغرفة<input id="roomCodeInput" inputmode="text" placeholder="MAF-728" maxlength="7" /></label>
+          <label>رمز الغرفة<input id="roomCodeInput" inputmode="text" placeholder="QNA-728" maxlength="7" /></label>
           <p class="field-error" id="joinError" role="alert"></p>
           <button class="button button-primary button-large full" value="default">دخول الغرفة</button>
           <small class="safe-copy">يتطلب اللعب حساباً. المشاهدة في الغرف العامة لا تتطلب حساباً.</small>
@@ -211,37 +250,85 @@
       </dialog>
 
       <dialog id="accountDialog" class="sheet-dialog account-dialog">
-        <form method="dialog" id="accountForm">
+        <div class="auth-shell">
           <div class="dialog-grip"></div>
-          <div class="dialog-heading"><div><small>هوية واحدة داخل الحارة</small><h2 id="accountDialogTitle">إنشاء حساب لاعب</h2></div><button class="icon-button" value="cancel" aria-label="إغلاق"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
-          <div class="account-fields">
-            <label>الاسم الظاهر<input id="accountNameInput" maxlength="24" autocomplete="name" placeholder="مثال: سامي العلوي" required /></label>
-            <label>اسم المستخدم<input id="accountUsernameInput" maxlength="20" autocomplete="username" placeholder="sami.mafia" required /></label>
-            <label>البريد الإلكتروني<input id="accountEmailInput" type="email" autocomplete="email" placeholder="name@example.com" required /></label>
-            <label>تاريخ الميلاد<input id="accountBirthInput" type="date" autocomplete="bday" required /></label>
-            <label class="account-password-field">كلمة المرور<input id="accountPasswordInput" type="password" minlength="8" autocomplete="new-password" placeholder="8 أحرف على الأقل" required /></label>
-          </div>
-          <p class="field-error" id="accountError" role="alert"></p>
-          <button class="button button-primary button-large full" id="saveAccountButton" value="default">إنشاء الحساب والمتابعة</button>
-          <small class="safe-copy">حساب تجريبي محفوظ على هذا الجهاز فقط. كلمة المرور لا تُحفظ ولا تُرسل في هذا النموذج.</small>
-        </form>
+          <div class="dialog-heading"><div><small id="accountDialogKicker">مرحباً بعودتك</small><h2 id="accountDialogTitle">تسجيل الدخول</h2></div><button class="icon-button" id="closeAccountDialog" type="button" aria-label="إغلاق"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+          <section id="loginPanel" class="auth-panel is-active">
+            <form id="loginForm" novalidate>
+              <label>البريد أو اسم المستخدم<input id="loginIdentity" autocomplete="username" required /></label>
+              <label>كلمة المرور<input id="loginPassword" type="password" autocomplete="current-password" minlength="8" required /></label>
+              <p class="field-error" id="loginError" role="alert"></p>
+              <button class="button button-primary button-large full" type="submit">تسجيل الدخول</button>
+            </form>
+            <div class="auth-divider"><span>أو سجّل الدخول بواسطة</span></div>
+            <div class="social-auth">
+              <a href="/api/auth/google/start" class="social-button google">G <span>المتابعة بحساب Google</span></a>
+              <a href="/api/auth/facebook/start" class="social-button facebook">f <span>المتابعة بحساب Facebook</span></a>
+            </div>
+            <div class="auth-switch"><span>ليس لديك حساب؟</span><button data-auth-mode="register" type="button">إنشاء حساب جديد</button></div>
+          </section>
+          <section id="registerPanel" class="auth-panel">
+            <form id="accountForm" novalidate>
+              <div class="account-fields">
+                <label id="displayNameField">الاسم الظاهر<input id="accountNameInput" maxlength="40" autocomplete="name" placeholder="مثال: سامي العلوي" required /></label>
+                <label id="usernameField">اسم المستخدم<input id="accountUsernameInput" maxlength="24" autocomplete="username" placeholder="sami.qinaa" required /><small class="field-hint">من 3 إلى 24 حرفاً؛ يمكن استعمال النقطة والشرطة فقط.</small></label>
+                <label id="emailField" class="account-wide-field">البريد الإلكتروني<input id="accountEmailInput" type="email" autocomplete="email" placeholder="name@example.com" required /></label>
+                <label id="passwordField">كلمة المرور<input id="accountPasswordInput" type="password" minlength="8" autocomplete="new-password" placeholder="8 أحرف على الأقل" required /></label>
+                <label id="confirmPasswordField">تأكيد كلمة المرور<input id="accountPasswordConfirmInput" type="password" minlength="8" autocomplete="new-password" placeholder="أعد كتابة كلمة المرور" required /></label>
+                <fieldset class="account-birth-field account-wide-field" id="birthField">
+                  <legend>تاريخ الميلاد</legend>
+                  <div class="birth-selects">
+                    <select id="accountBirthDay" aria-label="يوم الميلاد" autocomplete="bday-day" required></select>
+                    <select id="accountBirthMonth" aria-label="شهر الميلاد" autocomplete="bday-month" required></select>
+                    <select id="accountBirthYear" aria-label="سنة الميلاد" autocomplete="bday-year" required></select>
+                  </div>
+                </fieldset>
+              </div>
+              <p class="field-error" id="accountError" role="alert"></p>
+              <button class="button button-primary button-large full" id="saveAccountButton" type="submit">إنشاء الحساب</button>
+              <div class="auth-divider" id="registerAuthDivider"><span>أو أنشئ الحساب بواسطة</span></div>
+              <div class="social-auth" id="registerSocialAuth">
+                <a href="/api/auth/google/start" class="social-button google">G <span>Google</span></a>
+                <a href="/api/auth/facebook/start" class="social-button facebook">f <span>Facebook</span></a>
+              </div>
+              <small class="safe-copy" id="accountSafeCopy">الحساب محفوظ بأمان في قاعدة QINAA، والجلسة محمية داخل المتصفح.</small>
+            </form>
+            <div class="auth-switch" id="registerLoginPrompt"><span>لديك حساب بالفعل؟</span><button data-auth-mode="login" type="button">تسجيل الدخول</button></div>
+          </section>
+        </div>
       </dialog>
 
       <dialog id="roleDialog" class="role-dialog">
-        <div class="role-card">
-          <small>دورك السري</small>
-          <div class="role-orbit"><span></span><svg viewBox="0 0 24 24"><path d="M4 14s1-2 4-2 4 2 8 2 4-2 4-2"/><path d="M6 12l2-7 4 4 4-4 2 7M9 17h6M10 20h4"/></svg></div>
-          <h2>أنت من المافيا</h2>
-          <p>اتفق مع شريكك في الليل، وبدّد الشكوك عنك في النهار.</p>
-          <div class="partner"><span class="avatar a2">ن</span><div><small>شريكك السري</small><strong>نور</strong></div><span class="online-dot"></span></div>
-          <button class="button button-primary full" id="enterGameButton" type="button">فهمت، ادخل الحارة</button>
-          <small class="role-warning">لا تُرِ هذه الشاشة لأي لاعب آخر</small>
+        <div class="role-reveal-shell">
+          <div class="role-flip-card" id="roleFlipButton" role="button" tabindex="0" aria-label="اقلب البطاقة لكشف دورك">
+            <div class="role-flip-inner">
+              <section class="role-face role-back">
+                <span class="role-back-mark">؟</span>
+                <small>دورك مخفي</small>
+                <h2>اكشف بطاقتك</h2>
+                <p>اضغط على البطاقة وحدك لتعرف دورك في هذه الجولة.</p>
+                <b>اضغط للقلب</b>
+              </section>
+              <section class="role-face role-front">
+                <small>دورك السري</small>
+                <div class="role-symbol" id="roleSymbol">♛</div>
+                <h2 id="revealedRoleName">أفراد الظل</h2>
+                <p id="revealedRoleDescription"></p>
+                <div id="rolePartner"></div>
+                <span class="role-warning">لا تُرِ هذه البطاقة لأي لاعب آخر</span>
+              </section>
+            </div>
+          </div>
+          <div class="role-reveal-actions" id="roleRevealActions" hidden>
+            <div><span>وقت الاطلاع</span><strong id="roleCountdown">00:30</strong></div>
+            <button class="button button-primary full" id="enterGameButton" type="button">أنا مستعد، ابدأ الجولة</button>
+          </div>
         </div>
       </dialog>
 
       <div id="toast" class="toast" role="status" aria-live="polite"></div>
     </div>
 
-    <script type="module" src="/js/app.js?v=9"></script>
+    <script type="module" src="/js/app.js?v=26"></script>
   </body>
 </html>

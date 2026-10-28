@@ -1,11 +1,13 @@
-const CACHE_NAME = "harat-almafia-v9";
+const CACHE_NAME = "qinaa-v26";
 const APP_SHELL = [
   "/",
   "/index.html",
-  "/styles.css?v=9",
-  "/js/app.js?v=9",
-  "/js/state.js?v=9",
-  "/js/services/mock-realtime.js?v=9",
+  "/styles.css?v=26",
+  "/js/app.js?v=26",
+  "/js/state.js?v=26",
+  "/js/services/room-chat.js?v=19",
+  "/js/services/livekit-voice.js?v=19",
+  "/js/services/game-audio.js?v=23",
   "/assets/mark.svg",
   "/manifest.webmanifest"
 ];
@@ -22,9 +24,15 @@ self.addEventListener("activate", (event) => {
 
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
+  const url = new URL(event.request.url);
+  if (url.origin !== self.location.origin || url.pathname.startsWith("/api/") || url.pathname.startsWith("/admindash")) return;
+  if (event.request.mode === "navigate") {
+    event.respondWith(fetch(event.request).catch(() => caches.match("/index.html")));
+    return;
+  }
   event.respondWith(
     caches.match(event.request).then((cached) => cached || fetch(event.request).then((response) => {
-      if (response.ok && new URL(event.request.url).origin === self.location.origin) {
+      if (response.ok) {
         const copy = response.clone();
         caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
       }

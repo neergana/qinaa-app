@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "language": "ar",
+  "runtime": [
+    { "cue": "welcome", "file": "game-welcome.mp3", "purpose": "ترحيب اللاعب عند دخول غرفة اللعب" },
+    { "cue": "rolesReady", "file": "game-roles-ready.mp3", "purpose": "الاستعداد قبل كشف بطاقات الأدوار" },
+    { "cue": "nightStart", "file": "night-start-mix.mp3", "purpose": "حلول الليل وطلب إغماض الجميع أعينهم، مع المؤثر النهائي" },
+    { "cue": "shadowWake", "file": "night-shadow-wake.mp3", "purpose": "استيقاظ أفراد الظل واختيار الضحية" },
+    { "cue": "shadowSleep", "file": "night-shadow-sleep.mp3", "purpose": "انتهاء قرار أفراد الظل وعودتهم للنوم" },
+    { "cue": "rescuerWake", "file": "night-rescuer-wake.mp3", "purpose": "استيقاظ المُنقذ واختيار اللاعب المحمي؛ التسجيل الحالي ينطق الاسم القديم الطبيب" },
+    { "cue": "rescuerSleep", "file": "night-rescuer-sleep.mp3", "purpose": "انتهاء قرار المُنقذ؛ التسجيل الحالي ينطق الاسم القديم الطبيب" },
+    { "cue": "sheikhWake", "file": "night-sheikh-wake.mp3", "purpose": "استيقاظ الشيخ كاشف الأسرار واختيار لاعب للفحص" },
+    { "cue": "sheikhSleep", "file": "night-sheikh-sleep.mp3", "purpose": "انتهاء فحص الشيخ وعودته للنوم" },
+    { "cue": "witchWake", "file": "night-witch-wake.mp3", "purpose": "استيقاظ حارسة الجرعات" },
+    { "cue": "witchSleep", "file": "night-witch-sleep.mp3", "purpose": "انتهاء قرار حارسة الجرعات وعودتها للنوم" },
+    { "cue": "matchmakerWake", "file": "night-matchmaker-wake.mp3", "purpose": "استيقاظ رابطة القلوب لاختيار المرتبطين" },
+    { "cue": "matchmakerSleep", "file": "night-matchmaker-sleep.mp3", "purpose": "اكتمال الرباط وعودة رابطة القلوب للنوم" },
+    { "cue": "daybreak", "file": "daybreak-all-wake.mp3", "purpose": "شروق الصباح وطلب فتح الجميع أعينهم" },
+    { "cue": "victimReveal", "file": "daybreak-victim-reveal.mp3", "purpose": "مقدمة إعلان ضحية الليل عند توفر النتيجة من الخادم" }
+  ],
+  "source": [
+    { "file": "source/night-ambience.mp3", "purpose": "المؤثر الليلي الخام، محفوظ للمكساج ولا يُشغّل منفرداً" },
+    { "file": "source/night-start-voice.mp3", "purpose": "صوت بداية الليل الخام قبل المكساج، محفوظ للمونتاج" }
+  ]
+}

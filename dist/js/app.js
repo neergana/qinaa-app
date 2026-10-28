@@ -2,13 +2,14 @@ import {
   state,
   loadLocalState,
   saveOptions,
-  saveAccount,
   formatTime,
   resetForNight,
   startDay,
   startVote,
-} from "./state.js?v=9";
-import { realtime } from "./services/mock-realtime.js?v=9";
+} from "./state.js?v=26";
+import { roomChat } from "./services/room-chat.js?v=19";
+import { liveKitVoice } from "./services/livekit-voice.js?v=19";
+import { gameAudio } from "./services/game-audio.js?v=23";
 
 const $ = (selector, scope = document) => scope.querySelector(selector);
 const $$ = (selector, scope = document) => [...scope.querySelectorAll(selector)];
@@ -16,6 +17,15 @@ const gameContent = $("#gameContent");
 let gameTicker = null;
 let toastTimer = null;
 let pendingAccountAction = null;
+let roleRevealTimer = null;
+let roleRevealRemaining = 30;
+let currentAuthMode = "login";
+let lobbyPoller = null;
+let voiceErrorKey = "";
+let nightAudioTransition = false;
+let narratedNightRound = null;
+let scheduledBotVoteKey = "";
+let selectedProfileAvatar = "mask-01";
 
 const icon = (name) => {
   const icons = {
@@ -43,8 +53,41 @@ const escapeHtml = (value) => String(value)
   .replaceAll('"', "&quot;")
   .replaceAll("'", "&#039;");
 
+const avatarPalettes = [
+  ["#8f5cff", "#f5cf4d"], ["#ff526d", "#5ce0bd"], ["#3b8bff", "#f5cf4d"], ["#b76cff", "#ff8d68"], ["#2fb998", "#e9f0ff"],
+  ["#f5a623", "#4d2f74"], ["#ff6b9a", "#291b45"], ["#50a7ff", "#101c42"], ["#7ed957", "#342053"], ["#e45cff", "#ffe174"],
+];
+
+function presetAvatarSvg(value = "mask-01") {
+  const index = Math.max(0, Math.min(9, Number(value.split("-")[1] || 1) - 1));
+  const [first, second] = avatarPalettes[index];
+  const eye = index % 2 ? "M18 24h5M37 24h5" : "M18 24h4M38 24h4";
+  return `<svg viewBox="0 0 60 60" aria-hidden="true"><defs><linearGradient id="g${index}" x1="0" y1="0" x2="1" y2="1"><stop stop-color="${first}"/><stop offset="1" stop-color="${second}"/></linearGradient></defs><circle cx="30" cy="30" r="29" fill="url(#g${index})"/><path d="M12 19c6 2 11-1 18-8 7 7 12 10 18 8l-4 25c-8 7-20 7-28 0Z" fill="#100a18" fill-opacity=".82"/><path d="${eye}" stroke="#fff" stroke-width="3" stroke-linecap="round"/><path d="M24 37c4 3 8 3 12 0" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/></svg>`;
+}
+
+function profileAvatar(profile, className = "") {
+  if (profile?.avatarType === "upload") {
+    const source = profile.avatarUrl || `/api/profile/avatar/${profile.rawId || profile.id}`;
+    return `<span class="profile-avatar ${className}"><img src="${escapeHtml(source)}" alt="" /></span>`;
+  }
+  return `<span class="profile-avatar ${className}">${presetAvatarSvg(profile?.avatarValue)}</span>`;
+}
+
+async function apiRequest(path, options = {}) {
+  const response = await fetch(path, { credentials: "same-origin", ...options, headers: { ...(options.body instanceof FormData ? {} : { "Content-Type": "application/json" }), ...(options.headers || {}) } });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(data.error || "تعذر الاتصال بالخادم.");
+    error.status = response.status;
+    error.data = data;
+    throw error;
+  }
+  return data;
+}
+
 function avatar(player, extra = "") {
-  return `<span class="avatar ${player.accent || ""} ${extra}">${escapeHtml(player.initial || player.name.charAt(0))}</span>`;
+  if (player.avatarType) return profileAvatar(player, `avatar ${extra}`);
+  return `<span class="avatar ${player.accent || ""} ${extra}">${escapeHtml(player.initial || player.name?.charAt(0) || "؟")}</span>`;
 }
 
 function showToast(message) {
@@ -55,64 +98,522 @@ function showToast(message) {
   toastTimer = window.setTimeout(() => toast.classList.remove("is-visible"), 2300);
 }
 
-function renderAccountChip() {
-  const account = state.account;
-  $("#accountInitial").textContent = account?.displayName?.charAt(0) || "؟";
-  $("#accountLabel").textContent = account ? account.displayName : "حساب لاعب";
-  $("#accountSublabel").textContent = account ? `@${account.username}` : "مطلوب للعب";
-  $("#accountButton").classList.toggle("has-account", Boolean(account));
+function activeRoomCode() {
+  return state.rooms.find((room) => room.id === state.activeRoomId)?.code || $("#roomCode")?.textContent || "";
 }
 
-function openAccountDialog(afterSave = null) {
+function pathForRoute(route) {
+  const code = encodeURIComponent(activeRoomCode());
+  if (route === "lobby") return `/room/${code}`;
+  if (route === "game") return `/room/${code}/game`;
+  if (route === "profile") return "/profile";
+  if (route === "rules") return "/rules";
+  return "/";
+}
+
+function routeFromPath(pathname = location.pathname) {
+  if (/^\/room\/[^/]+\/game\/?$/i.test(pathname)) return "game";
+  if (/^\/room\/[^/]+\/?$/i.test(pathname)) return "lobby";
+  if (/^\/profile\/?$/i.test(pathname)) return "profile";
+  if (/^\/rules\/?$/i.test(pathname)) return "rules";
+  return "home";
+}
+
+async function syncRoomFromPath(pathname = location.pathname) {
+  const match = pathname.match(/^\/room\/([^/]+)/i);
+  if (!match) return true;
+  const code = decodeURIComponent(match[1]).toUpperCase();
+  try {
+    await loadRoom(code);
+    return true;
+  } catch (error) {
+    history.replaceState({ route: "home" }, "", "/");
+    showToast(error.data?.ended ? "انتهت الجولة، رجعناك للرئيسية" : error.message);
+    return false;
+  }
+}
+
+function syncPlayersFromRoom(members = []) {
+  state.players = members.map((member, index) => {
+    const previous = state.players.find((player) => player.rawId === member.id || (player.id === "me" && member.id === state.account?.id));
+    return {
+      id: member.id === state.account?.id ? "me" : member.id,
+      rawId: member.id,
+      name: member.name,
+      initial: member.bot ? "◉" : member.name?.charAt(0) || "؟",
+      accent: `a${(index % 6) + 1}`,
+      host: member.host,
+      alive: member.alive,
+      connected: true,
+      bot: Boolean(member.bot),
+      role: member.role || previous?.role || "البريء",
+      avatarType: member.avatarType,
+      avatarValue: member.avatarValue,
+      avatarUrl: member.avatarType === "upload" ? `/api/profile/avatar/${member.id}` : null,
+    };
+  });
+}
+
+async function loadRooms() {
+  const active = state.rooms.find((room) => room.id === state.activeRoomId);
+  const data = await apiRequest("/api/rooms");
+  state.rooms = data.rooms || [];
+  if (active && !state.rooms.some((room) => room.id === active.id)) state.rooms.unshift(active);
+  renderRoomDirectory();
+}
+
+async function loadRoom(code) {
+  const data = await apiRequest(`/api/rooms/${encodeURIComponent(code)}`);
+  const existing = state.rooms.findIndex((room) => room.id === data.room.id);
+  if (existing >= 0) state.rooms[existing] = data.room;
+  else state.rooms.unshift(data.room);
+  selectRoom(data.room.id);
+  if (typeof data.viewerMember === "boolean") state.spectator = !data.viewerMember;
+  syncPlayersFromRoom(data.members || []);
+  if (state.route === "lobby") renderLobby();
+  return data;
+}
+
+function connectCurrentRoomChat() {
+  const me = state.players.find((player) => player.id === "me");
+  if (activeRoomCode()) roomChat.connect(activeRoomCode(), { name: state.spectator ? "مشاهد" : me?.name || state.account?.displayName || "لاعب" });
+}
+
+function releaseMicrophone() {
+  liveKitVoice.setMicrophoneEnabled(false).catch(() => {});
+  state.micOn = false;
+}
+
+function desiredVoiceChannel() {
+  if (state.route !== "game" || !activeRoomCode()) return null;
+  const me = state.players.find((player) => player.id === "me");
+  if (state.phase === "night") return !state.spectator && me?.alive && me.role === "أفراد الظل" ? "shadow" : null;
+  return "public";
+}
+
+async function syncVoiceRoom() {
+  const channel = desiredVoiceChannel();
+  if (!channel) {
+    if (liveKitVoice.room || liveKitVoice.connecting) await liveKitVoice.disconnect();
+    state.voiceStatus = "disconnected";
+    return;
+  }
+  try {
+    await liveKitVoice.connect(activeRoomCode(), channel);
+    voiceErrorKey = "";
+  } catch (error) {
+    state.voiceStatus = "error";
+    const key = `${channel}:${error.message}`;
+    if (voiceErrorKey !== key) {
+      voiceErrorKey = key;
+      showToast(error.message);
+    }
+  }
+}
+
+async function toggleMicrophonePermission() {
+  const me = state.players.find((player) => player.id === "me");
+  if (state.spectator || !me?.alive || state.speaker && state.speaker.id !== "me") {
+    showToast("الميكروفون غير متاح في وضعك الحالي");
+    return;
+  }
+
+  if (state.micOn) {
+    await liveKitVoice.setMicrophoneEnabled(false).catch(() => {});
+    state.micOn = false;
+    showToast("الميكروفون مطفأ — لا أحد يسمعك");
+    renderGame();
+    return;
+  }
+
+  if (!navigator.mediaDevices?.getUserMedia) {
+    state.micPermission = "unsupported";
+    showToast("هذا المتصفح لا يدعم الوصول إلى الميكروفون");
+    renderGame();
+    return;
+  }
+
+  try {
+    await syncVoiceRoom();
+    await liveKitVoice.startAudio().catch(() => false);
+    await liveKitVoice.setMicrophoneEnabled(true);
+    state.micPermission = "granted";
+    state.micOn = true;
+    showToast("الميكروفون مباشر الآن داخل الغرفة");
+  } catch (error) {
+    releaseMicrophone();
+    state.micPermission = error?.name === "NotAllowedError" || error?.name === "NotAllowed" ? "denied" : "error";
+    showToast(state.micPermission === "denied" ? "رُفض إذن الميكروفون — يمكنك تغييره من إعدادات المتصفح" : error.message || "تعذر تشغيل الميكروفون");
+  }
+  renderGame();
+}
+
+function micStatus() {
+  if (state.spectator) return { title: "وضع المشاهدة", detail: "يمكنك القراءة والاستماع فقط", button: "غير متاح" };
+  const me = state.players.find((player) => player.id === "me");
+  if (!me?.alive) return { title: "الميكروفون غير متاح", detail: "بعد الإقصاء تصبح مشاركتك نصية فقط", button: "غير متاح" };
+  if (state.voiceStatus === "connecting" || state.voiceStatus === "reconnecting") return { title: "جارٍ ربط الصوت", detail: "ثوانٍ قليلة وتصبح الغرفة جاهزة", button: "انتظر" };
+  if (state.voiceStatus === "error") return { title: "تعذر ربط الصوت", detail: "اضغط لإعادة المحاولة", button: "إعادة الاتصال" };
+  if (state.micOn) return { title: "الميكروفون مفتوح", detail: "اضغط لإطفائه حتى لا يسمعك الآخرون", button: "إطفاء" };
+  if (state.micPermission === "denied") return { title: "إذن الميكروفون مرفوض", detail: "فعّله من إعدادات المتصفح ثم حاول مجدداً", button: "إعادة المحاولة" };
+  if (state.micPermission === "granted") return { title: "الميكروفون مطفأ", detail: "لا أحد يسمعك الآن", button: "تشغيل" };
+  return { title: "الميكروفون مطفأ افتراضياً", detail: "لن يُطلب الإذن حتى تضغط على تشغيل", button: "السماح والتشغيل" };
+}
+
+const roleDetails = {
+  "أفراد الظل": { label: "أنت من أفراد الظل", symbol: "♛", description: "تتفق سراً مع فريقك ليلاً على الهدف، وتحاول إبعاد الشك عنك نهاراً." },
+  "المُنقذ": { label: "أنت المُنقذ", symbol: "+", description: "تحمي لاعباً واحداً كل ليلة من هجوم أفراد الظل. اختر بحذر ولا تكشف نفسك." },
+  "الشيخ": { label: "أنت الشيخ — كاشف الأسرار", symbol: "⌕", description: "تفحص لاعباً واحداً كل ليلة لتعرف إن كان من أفراد الظل." },
+  "الساحرة": { label: "أنت الساحرة — حارسة الجرعات", symbol: "✦", description: "لديك جرعة إنقاذ وأخرى للإقصاء، وتُستعمل كل واحدة مرة واحدة في المباراة." },
+  "الخطّابة": { label: "أنت الخطّابة — رابطة القلوب", symbol: "♥", description: "تربط لاعبين بمصير واحد في البداية، ثم تلعب مع الأبرياء." },
+  "الكشّاف": { label: "أنت الكشّاف", symbol: "◉", description: "تفحص ثلاثة لاعبين ليلاً، وتعرف إن كان بينهم فرد من الظل دون كشف هويته." },
+  "عين الليل": { label: "عين الليل — اسم مقترح", symbol: "◐", description: "دور تجسس ليلي قيد الموازنة، ولن يدخل التوزيع قبل اعتماد آلية عادلة." },
+  "البريء": { label: "أنت البريء", symbol: "◆", description: "راقب الكلام والتصويت، واكشف أفراد الظل قبل أن يسيطروا على اللعبة." },
+};
+
+function shuffle(items) {
+  const result = [...items];
+  for (let index = result.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [result[index], result[swapIndex]] = [result[swapIndex], result[index]];
+  }
+  return result;
+}
+
+function distributeRoles() {
+  const count = state.players.length;
+  const mafiaCount = count >= 16 ? 4 : count >= 12 ? 3 : count >= 8 ? 2 : 1;
+  const deck = Array(mafiaCount).fill("أفراد الظل");
+  if (count >= 5) deck.push("المُنقذ", "الشيخ");
+  if (count >= 8 && deck.length < count) deck.push("الكشّاف");
+  if (state.options.witch && deck.length < count) deck.push("الساحرة");
+  if (state.options.cupid && deck.length < count) deck.push("الخطّابة");
+  while (deck.length < count) deck.push("البريء");
+  const distributed = shuffle(deck);
+  state.players.forEach((player, index) => { player.role = distributed[index]; });
+}
+
+function prepareRoleReveal(serverRole = null, serverPartners = []) {
+  window.clearInterval(roleRevealTimer);
+  void gameAudio.play("rolesReady");
+  const me = state.players.find((player) => player.id === "me");
+  if (!me) return;
+  if (serverRole) me.role = serverRole;
+  if (serverRole === "أفراد الظل") {
+    serverPartners.forEach((partner) => {
+      const player = state.players.find((item) => item.rawId === partner.id);
+      if (player) player.role = "أفراد الظل";
+    });
+  }
+  const details = roleDetails[me?.role] || roleDetails["البريء"];
+  const partners = state.players.filter((player) => player.id !== "me" && player.role === "أفراد الظل");
+  $("#revealedRoleName").textContent = details.label;
+  $("#revealedRoleDescription").textContent = details.description;
+  $("#roleSymbol").textContent = details.symbol;
+  $("#rolePartner").innerHTML = me?.role === "أفراد الظل" && partners.length ? `<div class="partner"><span class="avatar ${partners[0].accent}">${escapeHtml(partners[0].initial)}</span><div><small>شركاؤك في الظل</small><strong>${partners.map((player) => escapeHtml(player.name)).join("، ")}</strong></div><span class="online-dot"></span></div>` : "";
+  $("#roleDialog").classList.remove("is-revealed");
+  $("#roleRevealActions").hidden = true;
+  roleRevealRemaining = 30;
+  $("#roleCountdown").textContent = "00:30";
+  $("#roleDialog").showModal();
+}
+
+function revealRole() {
+  const dialog = $("#roleDialog");
+  if (dialog.classList.contains("is-revealed")) return;
+  dialog.classList.add("is-revealed");
+  $("#roleRevealActions").hidden = false;
+  roleRevealTimer = window.setInterval(() => {
+    roleRevealRemaining = Math.max(0, roleRevealRemaining - 1);
+    $("#roleCountdown").textContent = formatTime(roleRevealRemaining);
+    if (roleRevealRemaining === 0) enterGameAfterRole();
+  }, 1000);
+}
+
+function enterGameAfterRole() {
+  window.clearInterval(roleRevealTimer);
+  roleRevealTimer = null;
+  if ($("#roleDialog").open) $("#roleDialog").close();
+  resetForNight();
+  navigate("game");
+}
+
+function currentPlayerRole() {
+  return state.players.find((player) => player.id === "me")?.role || "البريء";
+}
+
+async function beginNightNarration() {
+  if (state.spectator || state.phase !== "night" || narratedNightRound === state.round) return;
+  narratedNightRound = state.round;
+  nightAudioTransition = true;
+  await gameAudio.play("nightStart");
+  if (state.route !== "game" || state.phase !== "night") {
+    nightAudioTransition = false;
+    return;
+  }
+  if (state.nightChoiceConfirmed) return;
+  await gameAudio.playRoleWake(currentPlayerRole());
+  if (!state.nightChoiceConfirmed) nightAudioTransition = false;
+}
+
+function beginDayWithNarration() {
+  if (state.phase !== "night") return;
+  nightAudioTransition = false;
+  startDay();
+  showToast("أشرقت الشمس — بدأ النقاش الحر");
+  renderGame();
+  void gameAudio.play("daybreak");
+}
+
+function renderDrawerProfile() {
+  const account = state.account;
+  $("#drawerProfile").innerHTML = account ? `
+    <div class="drawer-profile-card">${profileAvatar(account)}<div><strong>${escapeHtml(account.displayName)}</strong><small>@${escapeHtml(account.username)}</small></div></div>
+    <div class="drawer-profile-actions"><button data-profile-edit type="button">إدارة الملف</button><button data-logout type="button">خروج</button></div>
+  ` : `<button class="drawer-login" data-login-open type="button"><span>تسجيل الدخول</span><small>أو إنشاء حساب جديد للعب</small></button>`;
+}
+
+function setAccount(user) {
+  state.account = user || null;
+  const me = state.players.find((player) => player.id === "me");
+  if (me && user) {
+    me.name = user.displayName;
+    me.initial = user.displayName.charAt(0);
+    me.avatarType = user.avatarType;
+    me.avatarValue = user.avatarValue;
+    me.avatarUrl = user.avatarUrl;
+  }
+  renderDrawerProfile();
+}
+
+function populateBirthDateFields() {
+  const day = $("#accountBirthDay");
+  const month = $("#accountBirthMonth");
+  const year = $("#accountBirthYear");
+  const monthNames = ["يناير", "فبراير", "مارس", "أبريل", "ماي", "يونيو", "يوليوز", "غشت", "شتنبر", "أكتوبر", "نونبر", "دجنبر"];
+  const currentYear = new Date().getFullYear();
+  const years = Array.from({ length: currentYear - 1939 }, (_, index) => currentYear - index);
+
+  day.innerHTML = '<option value="">اليوم</option>';
+  month.innerHTML = `<option value="">الشهر</option>${monthNames.map((name, index) => `<option value="${index + 1}">${name}</option>`).join("")}`;
+  year.innerHTML = years.map((value) => `<option value="${value}">${value}</option>`).join("");
+  year.value = "2000";
+  syncBirthDays();
+}
+
+function populateProfileBirthDateFields() {
+  const day = $("#profileBirthDay");
+  const month = $("#profileBirthMonth");
+  const year = $("#profileBirthYear");
+  const monthNames = ["يناير", "فبراير", "مارس", "أبريل", "ماي", "يونيو", "يوليوز", "غشت", "شتنبر", "أكتوبر", "نونبر", "دجنبر"];
+  const currentYear = new Date().getFullYear();
+  day.innerHTML = '<option value="">اليوم</option>';
+  month.innerHTML = `<option value="">الشهر</option>${monthNames.map((name, index) => `<option value="${index + 1}">${name}</option>`).join("")}`;
+  year.innerHTML = Array.from({ length: currentYear - 1939 }, (_, index) => currentYear - index).map((value) => `<option value="${value}">${value}</option>`).join("");
+  year.value = "2000";
+  syncProfileBirthDays();
+}
+
+function syncProfileBirthDays(preferredDay = $("#profileBirthDay").value) {
+  const day = $("#profileBirthDay");
+  const month = Number($("#profileBirthMonth").value || 1);
+  const year = Number($("#profileBirthYear").value || 2000);
+  const totalDays = new Date(year, month, 0).getDate();
+  day.innerHTML = `<option value="">اليوم</option>${Array.from({ length: totalDays }, (_, index) => `<option value="${index + 1}">${index + 1}</option>`).join("")}`;
+  if (preferredDay && Number(preferredDay) <= totalDays) day.value = String(Number(preferredDay));
+}
+
+function syncBirthDays(preferredDay = $("#accountBirthDay").value) {
+  const day = $("#accountBirthDay");
+  const month = Number($("#accountBirthMonth").value || 1);
+  const year = Number($("#accountBirthYear").value || 2000);
+  const totalDays = new Date(year, month, 0).getDate();
+  day.innerHTML = `<option value="">اليوم</option>${Array.from({ length: totalDays }, (_, index) => `<option value="${index + 1}">${index + 1}</option>`).join("")}`;
+  if (preferredDay && Number(preferredDay) <= totalDays) day.value = String(Number(preferredDay));
+}
+
+function accountFormData() {
+  const birthDay = $("#accountBirthDay").value;
+  const birthMonth = $("#accountBirthMonth").value;
+  const birthYear = $("#accountBirthYear").value;
+  return {
+    displayName: $("#accountNameInput").value.trim(),
+    username: $("#accountUsernameInput").value.trim(),
+    email: $("#accountEmailInput").value.trim(),
+    password: $("#accountPasswordInput").value,
+    passwordConfirm: $("#accountPasswordConfirmInput").value,
+    birthDay,
+    birthMonth,
+    birthYear,
+    birthDate: birthDay && birthMonth && birthYear ? `${birthYear}-${String(birthMonth).padStart(2, "0")}-${String(birthDay).padStart(2, "0")}` : "",
+  };
+}
+
+function validateAccountData(data) {
+  const emailInput = $("#accountEmailInput");
+  if (!$("#displayNameField").hidden && data.displayName.length < 2) return "اكتب اسماً ظاهراً من حرفين على الأقل.";
+  if (!$("#usernameField").hidden && !/^[\p{L}\p{N}._-]{3,24}$/u.test(data.username)) return "اسم المستخدم غير صالح. استعمل من 3 إلى 24 حرفاً أو رقماً، ويمكن إضافة النقطة أو الشرطة فقط.";
+  if (!$("#emailField").hidden && (!emailInput.validity.valid || !data.email)) return "اكتب بريداً إلكترونياً صالحاً.";
+  if (!$("#passwordField").hidden) {
+    if (data.password.length < 8) return "كلمة المرور يجب أن تتكون من 8 أحرف على الأقل.";
+    if (data.password !== data.passwordConfirm) return "تأكيد كلمة المرور غير مطابق.";
+  }
+  if (!$("#birthField").hidden) {
+    const parsed = data.birthDate ? new Date(`${data.birthDate}T00:00:00`) : null;
+    const valid = parsed && !Number.isNaN(parsed.getTime()) && parsed.getFullYear() === Number(data.birthYear) && parsed.getMonth() + 1 === Number(data.birthMonth) && parsed.getDate() === Number(data.birthDay);
+    if (!valid || data.birthDate >= new Date().toISOString().slice(0, 10)) return "اختر يوم وشهر وسنة ميلاد صحيحة.";
+  }
+  return "";
+}
+
+function validateAccountField(input) {
+  if (!input || input.closest("[hidden]")) return "";
+  const data = accountFormData();
+  if (input.id === "accountNameInput" && data.displayName.length < 2) return "اكتب اسماً ظاهراً من حرفين على الأقل.";
+  if (input.id === "accountUsernameInput" && !/^[\p{L}\p{N}._-]{3,24}$/u.test(data.username)) return "اسم المستخدم غير صالح. استعمل من 3 إلى 24 حرفاً أو رقماً، ويمكن إضافة النقطة أو الشرطة فقط.";
+  if (input.id === "accountEmailInput" && (!input.validity.valid || !data.email)) return "اكتب بريداً إلكترونياً صالحاً.";
+  if (input.id === "accountPasswordInput" && data.password.length < 8) return "كلمة المرور يجب أن تتكون من 8 أحرف على الأقل.";
+  if (input.id === "accountPasswordConfirmInput" && data.password !== data.passwordConfirm) return "تأكيد كلمة المرور غير مطابق.";
+  return "";
+}
+
+function showAuthMode(mode) {
+  currentAuthMode = mode;
+  const editing = mode === "profile";
+  const completingSocial = mode === "social-complete";
+  const registering = mode === "register";
+  const missing = new Set(state.account?.missingFields || []);
+  $("#loginPanel").classList.toggle("is-active", mode === "login");
+  $("#registerPanel").classList.toggle("is-active", registering || editing || completingSocial);
+  $("#accountDialogTitle").textContent = editing ? "الملف الشخصي" : completingSocial ? "أكمل حسابك" : registering ? "إنشاء حساب جديد" : "تسجيل الدخول";
+  $("#accountDialogKicker").textContent = editing ? "هويتك داخل قِناع" : completingSocial ? "أدخل المعلومات الناقصة فقط" : registering ? "حساب واحد للانضمام إلى اللعب" : "مرحباً بعودتك";
+  $("#saveAccountButton").textContent = editing ? "حفظ الملف الشخصي" : completingSocial ? "حفظ ودخول قِناع" : "إنشاء الحساب";
+  $("#registerSocialAuth").hidden = !registering;
+  $("#registerAuthDivider").hidden = !registering;
+  $("#registerLoginPrompt").hidden = editing || completingSocial;
+  $("#displayNameField").hidden = completingSocial && !missing.has("displayName");
+  $("#usernameField").hidden = completingSocial && !missing.has("username");
+  $("#emailField").hidden = completingSocial && !missing.has("email");
+  [$("#accountUsernameInput"), $("#accountEmailInput")].forEach((input) => { input.disabled = editing; });
+  $("#birthField").hidden = editing || (completingSocial && !missing.has("birthDate"));
+  $("#passwordField").hidden = editing || (completingSocial && !missing.has("password"));
+  $("#confirmPasswordField").hidden = $("#passwordField").hidden;
+  $("#accountPasswordInput").required = !$("#passwordField").hidden;
+  $("#accountPasswordConfirmInput").required = !$("#confirmPasswordField").hidden;
+  $("#accountSafeCopy").textContent = completingSocial ? "سنحفظ هذه المعلومات مرة واحدة، ولن نطلبها منك في الدخول القادم." : "الحساب محفوظ بأمان في قاعدة QINAA، والجلسة محمية داخل المتصفح.";
+  $("#accountError").textContent = "";
+  $("#loginError").textContent = "";
+}
+
+function openAccountDialog(afterSave = null, preferredMode = null) {
   pendingAccountAction = afterSave;
   const account = state.account;
-  $("#accountDialogTitle").textContent = account ? "تعديل حساب اللاعب" : "إنشاء حساب لاعب";
-  $("#saveAccountButton").textContent = account ? "حفظ التعديلات" : "إنشاء الحساب والمتابعة";
+  showAuthMode(preferredMode || (account ? "profile" : "login"));
   $("#accountNameInput").value = account?.displayName || "";
   $("#accountUsernameInput").value = account?.username || "";
   $("#accountEmailInput").value = account?.email || "";
-  $("#accountBirthInput").value = account?.birthDate || "";
+  const [birthYear = "2000", birthMonth = "", birthDay = ""] = account?.birthDate?.split("-") || [];
+  $("#accountBirthYear").value = birthYear || "2000";
+  $("#accountBirthMonth").value = birthMonth ? String(Number(birthMonth)) : "";
+  syncBirthDays(birthDay);
   $("#accountPasswordInput").value = "";
-  $("#accountPasswordInput").required = !account;
+  $("#accountPasswordConfirmInput").value = "";
   $("#accountError").textContent = "";
+  $("#loginError").textContent = "";
   $("#accountDialog").showModal();
 }
 
+function renderProfilePage() {
+  const account = state.account;
+  if (!account || account.profileComplete === false) {
+    navigate("home", { replace: true });
+    openAccountDialog(null, account ? "social-complete" : "login");
+    return;
+  }
+  selectedProfileAvatar = account.avatarType === "preset" ? account.avatarValue || "mask-01" : "mask-01";
+  $("#profileAvatarPreview").innerHTML = profileAvatar(account, "profile-page-avatar");
+  $("#profileSummaryName").textContent = account.displayName;
+  $("#profileSummaryEmail").textContent = account.email;
+  $("#profileNameInput").value = account.displayName || "";
+  $("#profileUsernameInput").value = account.username || "";
+  $("#profileEmailInput").value = account.email || "";
+  const [year = "2000", month = "", day = ""] = account.birthDate?.split("-") || [];
+  $("#profileBirthYear").value = year || "2000";
+  $("#profileBirthMonth").value = month ? String(Number(month)) : "";
+  syncProfileBirthDays(day);
+  $("#profileCurrentPassword").value = "";
+  $("#profileNewPassword").value = "";
+  $("#profileConfirmPassword").value = "";
+  $("#profileError").textContent = "";
+  $("#profileAvatarPicker").innerHTML = Array.from({ length: 10 }, (_, index) => {
+    const value = `mask-${String(index + 1).padStart(2, "0")}`;
+    return `<button class="profile-avatar-option ${value === selectedProfileAvatar ? "is-selected" : ""}" type="button" data-profile-avatar="${value}" role="radio" aria-checked="${value === selectedProfileAvatar}">${presetAvatarSvg(value)}</button>`;
+  }).join("");
+}
+
 function requireAccount(action) {
-  if (state.account) {
+  if (state.account && state.account.profileComplete !== false) {
     action();
     return;
   }
-  openAccountDialog(action);
+  openAccountDialog(action, state.account ? "social-complete" : "login");
 }
 
 function selectRoom(roomId) {
   const room = state.rooms.find((item) => item.id === roomId) || state.rooms[0];
+  if (!room) return null;
   state.activeRoomId = room.id;
   state.options.privateRoom = Boolean(room.private);
   $("#roomCode").textContent = room.code;
   return room;
 }
 
-function joinRoomAsPlayer(roomId) {
+async function joinRoomAsPlayer(roomId) {
   const room = selectRoom(roomId);
+  if (!room) return;
+  await apiRequest(`/api/rooms/${encodeURIComponent(room.code)}/join`, { method: "POST" });
+  await loadRoom(room.code);
   state.spectator = false;
   navigate("lobby");
+  void gameAudio.play("welcome");
   showToast(`انضممت لاعباً إلى ${room.name}`);
 }
 
-function watchRoom(roomId) {
+async function watchRoom(roomId) {
   const room = selectRoom(roomId);
+  if (!room) return;
   if (room.private) {
     showToast("هذه الغرفة خاصة ولا تسمح بالمشاهدة");
     return;
   }
+  const data = await loadRoom(room.code);
   state.spectator = true;
   state.currentTab = "arena";
-  if (room.phase === "night") resetForNight();
-  else startDay();
+  if (data.room.status === "بانتظار اللاعبين") {
+    navigate("lobby");
+    showToast(`تشاهد ${room.name} وهي في انتظار بدء الجولة`);
+    return;
+  }
+  resetForNight();
   navigate("game");
   showToast(`تشاهد ${room.name} كضيف بلا حساب`);
+}
+
+async function leaveCurrentRoom() {
+  const code = activeRoomCode();
+  if (!code) return navigate("home", { replace: true });
+  try {
+    if (!state.spectator && state.account) await apiRequest(`/api/rooms/${encodeURIComponent(code)}/leave`, { method: "DELETE" });
+    state.messages = { public: [], mafia: [], dead: [] };
+    state.players = [];
+    state.activeRoomId = null;
+    state.spectator = false;
+    navigate("home", { replace: true });
+    await loadRooms();
+    showToast("غادرت الغرفة");
+  } catch (error) {
+    showToast(error.message);
+  }
 }
 
 function renderRoomDirectory() {
@@ -120,6 +621,9 @@ function renderRoomDirectory() {
   if (!directory) return;
   const publicRooms = state.rooms.filter((room) => !room.private);
   $("#liveRoomsCount").textContent = `${publicRooms.length} غرف`;
+  const quickWatch = $("#watchLiveRoomButton");
+  quickWatch.hidden = !publicRooms.length;
+  if (publicRooms.length) quickWatch.dataset.watchRoom = publicRooms[0].id;
   directory.innerHTML = publicRooms.length ? publicRooms.map((room) => {
     const full = room.players >= room.capacity;
     return `<article class="room-card">
@@ -130,31 +634,103 @@ function renderRoomDirectory() {
   }).join("") : '<div class="rooms-empty">لا توجد غرف عامة الآن. يمكنك إنشاء غرفة جديدة.</div>';
 }
 
-function navigate(route) {
+function stopLobbyPolling() {
+  window.clearInterval(lobbyPoller);
+  lobbyPoller = null;
+}
+
+function startLobbyPolling() {
+  stopLobbyPolling();
+  const poll = async () => {
+    if (!["lobby", "game"].includes(state.route) || !activeRoomCode()) return;
+    try {
+      await loadRoom(activeRoomCode());
+      if (state.route === "game") {
+        renderGame();
+        return;
+      }
+      const activeRoom = state.rooms.find((room) => room.id === state.activeRoomId);
+      if (state.spectator && activeRoom?.status === "جولة جارية") {
+        resetForNight();
+        navigate("game");
+        showToast("بدأت الجولة — انتقلت إلى المشاهدة");
+        return;
+      }
+      if (state.account && !state.spectator) {
+        const mine = await apiRequest(`/api/rooms/${encodeURIComponent(activeRoomCode())}/me`);
+        if (mine.status === "playing" && mine.role && !$("#roleDialog").open) prepareRoleReveal(mine.role, mine.partners || []);
+      }
+    } catch (error) {
+      if (error.data?.ended) {
+        stopLobbyPolling();
+        navigate("home", { replace: true });
+        await loadRooms();
+        showToast("انتهت الجولة، رجعناك للرئيسية");
+      }
+    }
+  };
+  lobbyPoller = window.setInterval(poll, 2500);
+}
+
+function navigate(route, { fromHistory = false, replace = false } = {}) {
+  const leavingGame = state.route === "game" && route !== "game";
+  if (leavingGame) state.route = route;
+  if (leavingGame) {
+    gameAudio.stop();
+    nightAudioTransition = false;
+    narratedNightRound = null;
+    releaseMicrophone();
+    liveKitVoice.disconnect();
+    roomChat.disconnect();
+  }
+  if (!["lobby", "game"].includes(route)) stopLobbyPolling();
+  if (!leavingGame && (route === "home" || route === "rules")) gameAudio.stop();
   state.route = route;
+  if (!fromHistory) {
+    const path = pathForRoute(route);
+    const nextUrl = `${path}${location.search}`;
+    if (replace) history.replaceState({ route }, "", nextUrl);
+    else if (location.pathname !== path) history.pushState({ route }, "", nextUrl);
+  }
   $$(".view").forEach((view) => view.classList.toggle("is-active", view.dataset.view === route));
   $$(".bottom-nav [data-route]").forEach((button) => button.classList.toggle("is-active", button.dataset.route === route));
   document.body.classList.toggle("game-mode", route === "game");
   closeDrawer();
   window.scrollTo({ top: 0, behavior: "smooth" });
-  if (route === "lobby") renderLobby();
+  if (route === "lobby") { renderLobby(); startLobbyPolling(); }
+  if (route === "profile") renderProfilePage();
   if (route === "game") {
+    connectCurrentRoomChat();
     renderGame();
+    syncVoiceRoom();
     startTicker();
+    startLobbyPolling();
+    void beginNightNarration();
   }
 }
 
 function renderLobby() {
-  $("#lobbyPlayers").innerHTML = state.players.map((player) => `
-    <div class="player-row" data-player-id="${player.id}">
-      ${avatar(player)}
-      <div><strong>${escapeHtml(player.name)}${player.id === "me" ? " (أنت)" : ""}</strong><small>${player.connected ? "متصل وجاهز" : "منقطع · الروبوت يتولى دوره"}</small></div>
-      ${player.host ? '<span class="host-badge">المضيف</span>' : `<button class="kick-button" data-kick="${player.id}" aria-label="إزالة ${escapeHtml(player.name)}"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>`}
-    </div>
-  `).join("");
+  const activeRoom = state.rooms.find((room) => room.id === state.activeRoomId);
+  const isHost = Boolean(state.account && activeRoom?.hostUserId === state.account.id);
+  const hasTwoRings = state.players.length > 10;
+  const firstRingCount = hasTwoRings ? Math.ceil(state.players.length / 2) : state.players.length;
+  $("#lobbyPlayers").innerHTML = state.players.map((player, index) => {
+    const innerRing = hasTwoRings && index >= firstRingCount;
+    const ringIndex = innerRing ? index - firstRingCount : index;
+    const ringCount = innerRing ? state.players.length - firstRingCount : firstRingCount;
+    const angle = (ringIndex / Math.max(1, ringCount)) * 360;
+    return `<div class="table-seat ${innerRing ? "is-inner" : ""}" data-player-id="${player.id}" style="--seat-angle:${angle}deg;--seat-counter:${-angle}deg">
+      ${avatar(player, player.bot ? "is-bot" : "")}
+      <strong>${escapeHtml(player.name)}${player.id === "me" ? " · أنت" : ""}</strong>
+      <small>${player.bot ? "روبوت تلقائي" : player.host ? "♛ المضيف" : "داخل الغرفة"}</small>
+      ${isHost && !player.host && !player.bot ? `<button class="seat-kick" data-kick="${escapeHtml(player.rawId || player.id)}" aria-label="إزالة ${escapeHtml(player.name)}">×</button>` : ""}
+    </div>`;
+  }).join("");
   $("#playerCount").textContent = state.players.length;
-  $("#minimumHint").textContent = state.players.length >= 5 ? `كل شيء جاهز · ${state.players.length} لاعبين متصلين` : `نحتاج ${5 - state.players.length} لاعبين إضافيين`;
-  $("#startGameButton").disabled = state.players.length < 5;
+  $("#tablePlayerCount").textContent = state.players.length;
+  $("#minimumHint").textContent = state.spectator ? "الجولة لم تبدأ بعد؛ ستنتقل إلى المشاهدة عند بدئها" : !isHost ? "في انتظار أن يبدأ المضيف الجولة" : state.players.length >= 5 ? `كل شيء جاهز · ${state.players.length} لاعبين` : `سيضيف قِناع ${5 - state.players.length} روبوتات تلقائياً عند البدء`;
+  $("#startGameButton").disabled = !isHost || state.spectator;
+  $("#leaveLobbyButton").textContent = state.spectator ? "مغادرة المشاهدة" : "مغادرة الغرفة";
   $("#cupidToggle").checked = state.options.cupid;
   $("#witchToggle").checked = state.options.witch;
   $("#privateRoomToggle").checked = state.options.privateRoom;
@@ -187,11 +763,10 @@ function startTicker() {
   gameTicker = window.setInterval(() => {
     if (state.route !== "game") return;
     if (state.phase === "night") {
+      if (nightAudioTransition) return;
       state.phaseRemaining = Math.max(0, state.phaseRemaining - 1);
       if (state.phaseRemaining === 0) {
-        startDay();
-        showToast("أشرقت الشمس — بدأ النقاش الحر");
-        renderGame();
+        beginDayWithNarration();
       }
     } else if (state.phase === "day") {
       if (state.speaker) {
@@ -204,6 +779,7 @@ function startTicker() {
         state.phaseRemaining = state.discussionRemaining;
         if (state.discussionRemaining === 0) {
           startVote();
+          scheduleBotVotes();
           showToast("انتهى النقاش — فُتح التصويت");
           renderGame();
         }
@@ -240,9 +816,10 @@ function updateTimers() {
 }
 
 function renderGame() {
+  if (state.currentTab === "chat") state.currentTab = "arena";
   const labels = {
     night: { label: "حلّ الليل", icon: "moon" },
-    day: { label: "نهار الحارة", icon: "sun" },
+    day: { label: "وقت النقاش", icon: "sun" },
     defense: { label: "دفاع المتعادلين", icon: "shield" },
     vote: { label: state.voteRound > 1 ? "إعادة التصويت" : "وقت التصويت", icon: "vote" },
   };
@@ -252,65 +829,82 @@ function renderGame() {
   $("#phaseIcon").innerHTML = icon(current.icon);
   $("#timerValue").textContent = formatTime(state.phaseRemaining);
   $$("[data-game-tab]").forEach((button) => button.classList.toggle("is-active", button.dataset.gameTab === state.currentTab));
-  $("#chatBadge").textContent = state.spectator ? "•" : state.phase === "night" ? state.messages.mafia.length : state.players.find((p) => p.id === "me").alive ? "•" : state.messages.dead.length;
 
   let content = "";
   if (state.currentTab === "arena") {
     content = state.phase === "night" ? nightTemplate() : state.phase === "day" ? dayTemplate() : state.phase === "defense" ? defenseTemplate() : voteTemplate();
   } else if (state.currentTab === "players") {
     content = playersTemplate();
-  } else if (state.currentTab === "chat") {
-    content = chatTabTemplate();
   } else {
     content = historyTemplate();
   }
   const activeRoom = state.rooms.find((room) => room.id === state.activeRoomId);
-  const spectatorNotice = state.spectator ? `<div class="spectator-banner">${icon("eye")}<div><strong>أنت تشاهد ${escapeHtml(activeRoom?.name || "الغرفة")}</strong><small>دخول بلا حساب · لا صوت ولا تصويت ولا وصول إلى أسرار الأدوار</small></div><button data-route="home" type="button">خروج</button></div>` : "";
+  const spectatorNotice = state.spectator ? `<div class="spectator-banner">${icon("eye")}<div><strong>أنت تشاهد ${escapeHtml(activeRoom?.name || "الغرفة")}</strong><small>دخول بلا حساب · استماع فقط بلا تصويت أو أسرار الأدوار</small></div><button data-action="start-audio" type="button">تشغيل الصوت</button><button data-route="home" type="button">خروج</button></div>` : "";
   gameContent.innerHTML = spectatorNotice + content;
   updateTimers();
+  syncVoiceRoom();
 }
 
 function nightTemplate() {
   if (state.spectator) {
-    return `<div class="game-stage"><section class="stage-hero spectator-night"><span class="mock-flag">معلومات محجوبة</span><div class="eyebrow"><span></span> الليل جارٍ</div><h1>الحارة نائمة</h1><p>أنت تشاهد فقط. اختيارات الأدوار وقنوات المافيا السرية مخفية حتى لا تنكشف اللعبة.</p></section><div class="spectator-wait">${icon("lock")}<strong>ننتظر شروق النهار</strong><small>ستنتقل المشاهدة تلقائياً عند انتهاء المرحلة.</small></div></div>`;
+    return `<div class="game-stage"><section class="stage-hero spectator-night"><span class="mock-flag">معلومات محجوبة</span><div class="eyebrow"><span></span> الليل جارٍ</div><h1>اللاعبون نائمون</h1><p>أنت تشاهد فقط. اختيارات الأدوار وقنوات أفراد الظل السرية مخفية حتى لا تنكشف اللعبة.</p></section><div class="spectator-wait">${icon("lock")}<strong>ننتظر شروق النهار</strong><small>ستنتقل المشاهدة تلقائياً عند انتهاء المرحلة.</small></div></div>`;
   }
-  const targets = state.players.filter((player) => !["me", "noor"].includes(player.id) && player.alive);
-  const targetName = state.selectedTarget ? state.players.find((player) => player.id === state.selectedTarget)?.name : "";
+  const me = state.players.find((player) => player.id === "me");
+  const roleActions = {
+    "أفراد الظل": { eyebrow: "قناة أفراد الظل الخاصة", title: "اختاروا هدف الليلة", description: "لا يرى هذا القرار سوى أفراد الظل. اختاروا لاعباً ثم أكدوا القرار.", target: "الهدف المقترح" },
+    "المُنقذ": { eyebrow: "قرار المُنقذ", title: "من ستحمي الليلة؟", description: "اختر لاعباً واحداً لحمايته من هجوم أفراد الظل هذه الليلة.", target: "اللاعب المحمي" },
+    "الشيخ": { eyebrow: "كشف الأسرار", title: "من ستفحص الليلة؟", description: "اختَر لاعباً واحداً لتتحقق سراً إن كان من أفراد الظل.", target: "هدف الكشف" },
+    "الساحرة": { eyebrow: "قرار حارسة الجرعات", title: "اختاري هدف جرعتك", description: "اختاري لاعباً لقرارك الليلي. استعمال الجرعات الكامل سيُربط بالخادم لاحقاً.", target: "هدف الجرعة" },
+    "الكشّاف": { eyebrow: "جولة الكشّاف", title: "اختر ثلاثة لاعبين", description: "ستعرف هل يوجد فرد من الظل بينهم، من دون معرفة هويته بالتحديد.", target: "مجموعة الفحص" },
+  };
+  const actionCopy = roleActions[me?.role];
+  if (!actionCopy) {
+    const details = roleDetails[me?.role] || roleDetails["البريء"];
+    return `<div class="game-stage"><section class="stage-hero spectator-night"><span class="mock-flag">${escapeHtml(me?.role || "البريء")}</span><div class="eyebrow"><span></span> الليل مستمر</div><h1>لا قرار لك هذه الليلة</h1><p>${escapeHtml(details.description)}</p></section><div class="spectator-wait">${icon("moon")}<strong>راقب وانتظر شروق النهار</strong><small>ستنتقل المرحلة تلقائياً عند انتهاء قرارات الأدوار.</small></div></div>`;
+  }
+  const isShadow = me?.role === "أفراد الظل";
+  const isScout = me?.role === "الكشّاف";
+  const requiredConfirmations = isShadow ? Math.max(1, state.players.filter((player) => player.role === "أفراد الظل" && player.alive).length) : 1;
+  const targets = state.players.filter((player) => player.id !== "me" && player.alive && (!isShadow || player.role !== "أفراد الظل"));
+  const selectionReady = isScout ? state.scoutTargets.length === 3 : Boolean(state.selectedTarget);
+  const targetName = isScout ? state.scoutTargets.map((id) => state.players.find((player) => player.id === id)?.name).filter(Boolean).join("، ") : state.selectedTarget ? state.players.find((player) => player.id === state.selectedTarget)?.name : "";
   return `
     <div class="game-stage">
       <section class="stage-hero">
-        <span class="mock-flag">صوت تجريبي</span>
-        <div class="eyebrow"><span></span> قناة المافيا الخاصة</div>
-        <h1>اختاروا هدف الليلة</h1>
-        <p>لا يسمع هذه القناة ولا يرى رسائلها سوى أعضاء المافيا. الصوت هنا واجهة محاكاة فقط.</p>
+        <span class="mock-flag">قرار سري</span>
+        <div class="eyebrow"><span></span> ${actionCopy.eyebrow}</div>
+        <h1>${actionCopy.title}</h1>
+        <p>${actionCopy.description}</p>
       </section>
-      <div class="section-label"><h2>الهدف المقترح</h2><span>${state.nightChoiceConfirmed ? "اختيارك مقفل" : state.selectedTarget ? "بانتظار التأكيد" : "اختر لاعباً واحداً"}</span></div>
+      <div class="section-label"><h2>${actionCopy.target}</h2><span>${state.nightChoiceConfirmed ? "اختيارك مقفل" : isScout ? `${state.scoutTargets.length} من 3` : state.selectedTarget ? "بانتظار التأكيد" : "اختر لاعباً واحداً"}</span></div>
       <div class="target-grid">
-        ${targets.map((player) => `<button class="target-card ${state.selectedTarget === player.id ? "is-selected" : ""} ${state.nightChoiceConfirmed ? "is-locked" : ""}" data-target="${player.id}" ${state.nightChoiceConfirmed ? "disabled" : ""}>${avatar(player)}<strong>${escapeHtml(player.name)}</strong><small>حيّ · متصل</small></button>`).join("")}
+        ${targets.map((player) => `<button class="target-card ${(isScout ? state.scoutTargets.includes(player.id) : state.selectedTarget === player.id) ? "is-selected" : ""} ${state.nightChoiceConfirmed ? "is-locked" : ""}" data-target="${player.id}" ${state.nightChoiceConfirmed ? "disabled" : ""}>${avatar(player)}<strong>${escapeHtml(player.name)}</strong><small>حيّ · متصل</small></button>`).join("")}
       </div>
       <div class="confirmation-panel ${state.nightChoiceConfirmed ? "is-complete" : ""}">
-        <div class="confirmation-copy"><span class="confirmation-icon">${state.nightChoiceConfirmed ? "✓" : icon("lock")}</span><div><strong>${state.nightChoiceConfirmed ? `تم تأكيد ${escapeHtml(targetName)}` : "أكّد اختيارك النهائي"}</strong><small>${state.nightChoiceConfirmed ? "اكتملت تأكيدات المافيا؛ تنتقل المرحلة تلقائياً." : "شريكتك أكدت اختيارها · ينتهي الليل فور تأكيدكما."}</small></div></div>
+        <div class="confirmation-copy"><span class="confirmation-icon">${state.nightChoiceConfirmed ? "✓" : icon("lock")}</span><div><strong>${state.nightChoiceConfirmed ? isScout ? (state.scoutResult ? "يوجد فرد من الظل داخل المجموعة" : "لا يوجد فرد من الظل داخل المجموعة") : `تم تأكيد ${escapeHtml(targetName)}` : "أكّد اختيارك النهائي"}</strong><small>${state.nightChoiceConfirmed ? isScout ? "النتيجة جماعية ولا تكشف هوية أي لاعب." : "اكتمل قرار الدور؛ تنتقل المرحلة تلقائياً." : isScout ? "اختر ثلاثة لاعبين بالضبط ثم أكّد الفحص." : "لن تنتظر نهاية الوقت بعد اكتمال التأكيدات."}</small></div></div>
         <div class="confirmation-progress"><span style="--confirmed:${state.nightChoiceConfirmed ? 100 : 50}%"></span></div>
-        <div class="confirmation-footer"><b>${state.nightChoiceConfirmed ? 2 : state.nightConfirmations} من 2 أكدوا</b><button class="button button-primary" data-action="confirm-night" ${!state.selectedTarget || state.nightChoiceConfirmed ? "disabled" : ""}>${state.nightChoiceConfirmed ? "تم التأكيد" : "تأكيد الهدف"}</button></div>
+        <div class="confirmation-footer"><b>${state.nightChoiceConfirmed ? requiredConfirmations : isShadow ? Math.min(state.nightConfirmations, requiredConfirmations) : 0} من ${requiredConfirmations} أكدوا</b><button class="button button-primary" data-action="confirm-night" ${!selectionReady || state.nightChoiceConfirmed ? "disabled" : ""}>${state.nightChoiceConfirmed ? "تم التأكيد" : isScout ? "تأكيد المجموعة" : "تأكيد الهدف"}</button></div>
       </div>
-      <div class="section-label"><h2>همس المافيا</h2><span>مشفّر في النسخة النهائية</span></div>
-      ${channelTemplate("mafia")}
-      <div class="voice-bar">
-        <div><span class="voice-visual"><i></i><i></i><i></i></span><span><strong>قناة الصوت الخاصة</strong><small>محاكاة واجهة — لا صوت فعلياً</small></span></div>
+      ${isShadow ? `<div class="section-label"><h2>همس أفراد الظل</h2><span>خاص ومباشر</span></div>${channelTemplate("mafia")}<div class="voice-bar">
+        <div><span class="voice-visual"><i></i><i></i><i></i></span><span><strong>قناة الصوت الخاصة</strong><small>${state.voiceStatus === "connected" ? "متصلة عبر LiveKit" : "جارٍ ربط القناة السرية…"}</small></span></div>
         <button class="mic-button ${state.micOn ? "" : "is-muted"}" data-action="toggle-mic" aria-label="${state.micOn ? "كتم الميكروفون" : "تشغيل الميكروفون"}">${icon(state.micOn ? "mic" : "micOff")}</button>
-      </div>
-      <div class="automation-note">${icon("shield")}<p><strong>الانتقال آلي.</strong> لا يستطيع المضيف إنهاء الليل بدلاً من اللاعبين؛ لكل دور اختياره وزر تأكيده الخاص.</p></div>
+      </div>` : ""}
+      <div class="automation-note">${icon("shield")}<p><strong>الانتقال آلي.</strong> لكل دور اختياره وزر تأكيده الخاص، ولا يستطيع المضيف اتخاذ القرار بدلاً منه.</p></div>
     </div>`;
 }
 
 function dayTemplate() {
   const queue = state.speechQueue.map((id) => state.players.find((player) => player.id === id)).filter(Boolean);
+  const me = state.players.find((player) => player.id === "me");
   const isMyTurn = !state.spectator && state.speaker?.id === "me";
-  const requestDisabled = state.spectator || Boolean(state.speaker?.id === "me");
+  const requestDisabled = state.spectator || !me?.alive || Boolean(state.speaker?.id === "me");
+  const mic = micStatus();
+  const micDisabled = state.spectator || !me?.alive || Boolean(state.speaker && !isMyTurn);
+  const chatChannel = me?.alive || state.spectator ? "public" : "dead";
   return `
     <div class="game-stage">
       <section class="stage-hero">
-        <span class="mock-flag">صوت تجريبي</span>
+        <span class="mock-flag">صوت مباشر</span>
         <div class="eyebrow"><span></span> النقاش مفتوح</div>
         <h1>من تتهم اليوم؟</h1>
         <p>أربع دقائق للنقاش. يتوقف المؤقت تلقائياً أثناء مداخلة المتحدث، ثم يستأنف من حيث توقف.</p>
@@ -322,14 +916,16 @@ function dayTemplate() {
         ${state.speaker ? `<div class="speaker-card">${avatar(state.speaker)}<div><strong>${escapeHtml(state.speaker.name)} يتحدث الآن</strong><small>${state.speakerIndex === 1 ? "المداخلة الأولى · دقيقتان" : "مداخلة · دقيقة واحدة"}</small></div><b class="speaker-clock" id="speakerClock">${formatTime(state.speakerRemaining)}</b></div>` : ""}
         ${state.speaker ? `<button class="self-stop ${isMyTurn ? "" : "is-locked"}" data-action="self-stop" ${isMyTurn ? "" : "disabled"}>${isMyTurn ? "إنهاء مداخلتي وتمرير الدور" : `التحكم لدى ${escapeHtml(state.speaker.name)} وحده`}</button>` : ""}
       </div>
-      <div class="voice-bar">
-        <div>${icon(state.spectator ? "eye" : state.micOn ? "mic" : "micOff")}<span><strong>${state.spectator ? "وضع المشاهدة" : state.speaker && !isMyTurn ? `الدور عند ${escapeHtml(state.speaker.name)}` : `ميكروفونك ${state.micOn ? "مفتوح" : "مكتوم"}`}</strong><small>${state.spectator ? "يمكنك الاستماع فقط ولا تحتاج إلى حساب" : state.speaker && !isMyTurn ? "لا يمكن للمضيف أو غيره قطع المداخلة" : "التحكم بيدك · واجهة بلا بث"}</small></span></div>
-        <button class="mic-button ${state.micOn ? "" : "is-muted"}" data-action="toggle-mic" aria-label="تبديل الميكروفون" ${state.spectator || state.speaker && !isMyTurn ? "disabled" : ""}>${icon(state.micOn ? "mic" : "micOff")}</button>
-      </div>
       <div class="section-label"><h2>طابور المتحدثين</h2><span>${queue.length} في الانتظار</span></div>
       <div class="queue-list">${queue.length ? queue.map((player, index) => `<div class="queue-item">${avatar(player)}<strong>${escapeHtml(player.name)}${player.id === "me" ? " (أنت)" : ""}</strong><b>#${index + 1}</b></div>`).join("") : '<div class="queue-empty">لا أحد ينتظر الآن</div>'}</div>
-      <button class="button ${state.requestedToSpeak || isMyTurn ? "button-secondary" : "button-primary"} full" data-action="request-speech" type="button" ${requestDisabled ? "disabled" : ""}>${state.spectator ? "المشاهدة فقط — لا يمكن طلب الكلام" : isMyTurn ? "أنت تتحدث الآن" : state.requestedToSpeak ? "إلغاء طلبي من الطابور" : "طلب الكلام والبدء تلقائياً"}</button>
+      <button class="button ${state.requestedToSpeak || isMyTurn ? "button-secondary" : "button-primary"} full" data-action="request-speech" type="button" ${requestDisabled ? "disabled" : ""}>${state.spectator ? "المشاهدة فقط — لا يمكن طلب الكلام" : !me?.alive ? "بعد الإقصاء: محادثة نصية فقط" : isMyTurn ? "أنت تتحدث الآن" : state.requestedToSpeak ? "إلغاء طلبي من الطابور" : "طلب الكلام والبدء تلقائياً"}</button>
       <div class="automation-note">${icon("users")}<p><strong>طابور آلي بالكامل.</strong> لا يختار المضيف المتحدث ولا ينهي مداخلته. ينتقل الدور عند ضغط المتحدث على الإنهاء أو انتهاء وقته.</p></div>
+      <section class="arena-comms">
+        <div class="arena-comms-head"><div><small>${chatChannel === "dead" ? "نص فقط بعد الإقصاء" : "الصوت والنص في المكان نفسه"}</small><h2>${chatChannel === "dead" ? "مجلس الموتى" : "مجلس قِناع"}</h2></div><span class="chat-live-status status-${state.chatStatus}" id="publicChatStatus">${chatStatusLabel()}</span></div>
+        ${chatChannel === "public" ? `<div class="voice-control-card ${state.micOn ? "is-live" : ""}"><span class="voice-control-icon">${icon(state.micOn ? "mic" : "micOff")}</span><div><strong>${state.speaker && !isMyTurn ? `الدور عند ${escapeHtml(state.speaker.name)}` : mic.title}</strong><small>${state.speaker && !isMyTurn ? "لا يستطيع أحد قطع مداخلته" : mic.detail}</small></div><button class="mic-control-button" data-action="toggle-mic" type="button" ${micDisabled ? "disabled" : ""}>${mic.button}</button></div>` : ""}
+        ${channelTemplate(chatChannel)}
+        <div class="realtime-note"><i></i><p><strong>الصوت والنص مباشران الآن.</strong> الميكروفون مطفأ افتراضياً ولا يطلب الإذن إلا بعد ضغطك على تشغيل.</p></div>
+      </section>
     </div>`;
 }
 
@@ -362,7 +958,9 @@ function defenseTemplate() {
 }
 
 function voteTemplate() {
-  const candidateIds = state.voteRound > 1 && state.revoteCandidates.length ? state.revoteCandidates : ["omar", "youssef", "mariam"];
+  const candidateIds = state.voteRound > 1 && state.revoteCandidates.length
+    ? state.revoteCandidates
+    : state.players.filter((player) => player.alive).map((player) => player.id);
   const candidates = candidateIds.map((id) => state.players.find((player) => player.id === id)).filter(Boolean);
   const totalVotes = Object.values(state.votes).reduce((sum, value) => sum + value, 0) || 1;
   const aliveCount = state.players.filter((player) => player.alive).length;
@@ -372,7 +970,7 @@ function voteTemplate() {
     <div class="game-stage">
       <section class="stage-hero">
         <span class="mock-flag">تفاعل محلي</span>
-        <div class="eyebrow"><span></span> ${state.voteRound > 1 ? "الإعادة الحاسمة" : "قرار الحارة"}</div>
+        <div class="eyebrow"><span></span> ${state.voteRound > 1 ? "الإعادة الحاسمة" : "قرار اللاعبين"}</div>
         <h1>${state.voteClosed ? "أُغلق صندوق التصويت" : "صوّت قبل انتهاء الوقت"}</h1>
         <p>تظهر الأعداد مباشرة للجميع، بينما تبقى أسماء المصوّتين مخفية حتى إغلاق الصندوق.</p>
       </section>
@@ -381,7 +979,7 @@ function voteTemplate() {
         ${candidates.map((player) => {
           const count = state.votes[player.id] || 0;
           const percent = Math.round((count / totalVotes) * 100);
-          return `<button class="vote-row ${state.myVote === player.id ? "is-my-vote" : ""} ${state.voteConfirmed ? "is-locked" : ""}" style="--vote-width:${percent}%" data-vote="${player.id}" ${state.spectator || state.voteClosed || state.voteConfirmed ? "disabled" : ""}>${avatar(player)}<div><strong>${escapeHtml(player.name)}</strong><small>${state.voteClosed && state.revealVoters ? voteIdentities(player.id) : state.voteConfirmed && state.myVote === player.id ? "تم تأكيد صوتك" : "هويات المصوّتين مخفية"}</small></div><b class="vote-count">${count} ${count === 1 ? "صوت" : "أصوات"}</b></button>`;
+          return `<button class="vote-row ${state.myVote === player.id ? "is-my-vote" : ""} ${state.voteConfirmed ? "is-locked" : ""}" style="--vote-width:${percent}%" data-vote="${player.id}" ${state.spectator || state.voteClosed || state.voteConfirmed || player.id === "me" ? "disabled" : ""}>${avatar(player, player.bot ? "is-bot" : "")}<div><strong>${escapeHtml(player.name)}${player.id === "me" ? " · أنت" : ""}</strong><small>${state.voteClosed && state.revealVoters ? voteIdentities(player.id) : player.id === "me" ? "لا يمكنك التصويت لنفسك" : state.voteConfirmed && state.myVote === player.id ? "تم تأكيد صوتك" : "هويات المصوّتين مخفية"}</small></div><b class="vote-count">${count} ${count === 1 ? "صوت" : "أصوات"}</b></button>`;
         }).join("")}
       </div>
       <p class="vote-note">${state.voteClosed ? "أُغلق الصندوق وكُشفت هويات المصوّتين." : state.spectator ? "ترى عدد الأصوات مباشرة، لكن المشاهدة لا تسمح لك بالتصويت." : "يمكنك تغيير اختيارك قبل التأكيد. بعد التأكيد يصبح صوتك نهائياً."}</p>
@@ -392,6 +990,7 @@ function voteTemplate() {
 }
 
 function resultTemplate(result) {
+  if (!result.ids.length) return `<div class="prototype-note"><span>لا إقصاء</span><p>لم يُسجّل أي صوت، لذلك تبدأ الليلة التالية من دون إقصاء.</p></div>`;
   if (result.tie) {
     if (state.voteRound >= 2) {
       return `<div class="prototype-note"><span>لا إقصاء</span><p><strong>استمر التعادل بعد الإعادة.</strong> أُلغيت النتيجة، وسيبدأ الليل التالي تلقائياً.</p></div>`;
@@ -402,32 +1001,20 @@ function resultTemplate(result) {
 }
 
 function playersTemplate() {
+  const me = state.players.find((player) => player.id === "me");
   return `
-    <div class="section-label" style="padding:0 1.1rem"><h2>أهل الحارة</h2><span>${state.players.filter((player) => player.alive).length} أحياء</span></div>
+    <div class="section-label" style="padding:0 1.1rem"><h2>اللاعبون</h2><span>${state.players.filter((player) => player.alive).length} أحياء</span></div>
     <div class="roster-grid">
-      ${state.players.map((player) => `<div class="roster-card ${player.alive ? "" : "is-dead"} ${player.id === "me" && state.botActive ? "is-bot" : ""}">${avatar(player)}<div><strong>${escapeHtml(player.name)}${player.host ? " · مضيف" : ""}</strong><small>${player.alive ? (player.id === "me" && state.botActive ? "الروبوت يلعب مؤقتاً" : "حيّ · متصل") : "مُقصى · نص فقط"}</small></div></div>`).join("")}
+      ${state.players.map((player) => `<div class="roster-card ${player.alive ? "" : "is-dead"} ${player.bot || (player.id === "me" && state.botActive) ? "is-bot" : ""}">${avatar(player, player.bot ? "is-bot" : "")}<div><strong>${escapeHtml(player.name)}${player.host ? " · مضيف" : ""}</strong><small>${player.alive ? player.bot ? "روبوت · ينفذ دوره ويصوّت تلقائياً" : player.id === "me" && state.botActive ? "الروبوت يلعب مؤقتاً" : "حيّ · متصل" : "مُقصى · نص فقط"}</small></div></div>`).join("")}
     </div>
-    ${state.spectator ? "" : `<div class="game-stage">
+    ${state.spectator || !me?.host ? "" : `<div class="game-stage">
       <div class="host-controls">
-        <div class="host-controls-head"><strong>تجربة حالات النظام</strong><span>أدوات المضيف مستمرة دائماً</span></div>
+        <div class="host-controls-head"><strong>إدارة الجولة</strong><span>أدوات المضيف مستمرة بعد الإقصاء</span></div>
         <div class="host-controls-actions">
-          <button class="small-button" data-action="toggle-death">${state.players.find((p) => p.id === "me").alive ? "محاكاة إقصائي" : "إعادتي حياً"}</button>
-          <button class="small-button" data-action="toggle-connection">${state.botActive ? "محاكاة عودتي" : "محاكاة انقطاعي"}</button>
+          <button class="small-button danger" data-action="end-round">إنهاء الجولة وحذف رسائلها</button>
         </div>
       </div>
     </div>`}`;
-}
-
-function chatTabTemplate() {
-  if (state.spectator) {
-    return `<div class="empty-state">${icon("eye")}<h2>مشاهدة بلا محادثة</h2><p>يمكن للضيف متابعة الغرفة العامة بلا حساب، لكن لا يمكنه الكتابة أو دخول قنوات الأدوار السرية.</p></div>`;
-  }
-  const me = state.players.find((player) => player.id === "me");
-  if (!me.alive) {
-    return `<div class="game-stage"><section class="stage-hero"><div class="eyebrow"><span></span> مقاعد المتفرجين</div><h1>محادثة الموتى</h1><p>نص فقط. لا يمكنك العودة إلى القنوات الصوتية أو التأثير في اللاعبين الأحياء.</p></section><div class="section-label"><h2>الرسائل</h2><span>لا يراها الأحياء</span></div>${channelTemplate("dead")}</div>`;
-  }
-  if (state.phase === "night") return `<div class="game-stage"><div class="section-label"><h2>همس المافيا</h2><span>خاص بالأعضاء</span></div>${channelTemplate("mafia")}</div>`;
-  return `<div class="empty-state">${icon("chat")}<h2>صوت النهار هو الساحة</h2><p>المحادثة النصية العامة معطّلة أثناء اللعب. استخدم الميكروفون أو اطلب دوراً في طابور المتحدثين.</p></div>`;
 }
 
 function historyTemplate() {
@@ -436,25 +1023,94 @@ function historyTemplate() {
 }
 
 function channelTemplate(channel) {
-  const messages = state.messages[channel];
-  return `<div class="mafia-channel"><div class="channel-head"><div>${icon(channel === "mafia" ? "lock" : "skull")}<strong>${channel === "mafia" ? "قناة سرية" : "نص المتفرجين"}</strong></div><span class="voice-visual"><i></i><i></i><i></i></span></div><div class="messages" id="messageList">${messages.map((message) => `<div class="message ${message.mine ? "mine" : ""}">${avatar(message)}<div class="message-bubble">${escapeHtml(message.body)}<small>${escapeHtml(message.time)}</small></div></div>`).join("")}</div><form class="chat-compose" data-chat-form="${channel}"><input name="message" maxlength="120" placeholder="اكتب رسالة قصيرة…" autocomplete="off" aria-label="رسالة"><button type="submit" aria-label="إرسال">${icon("send")}</button></form></div>`;
+  const isPublic = channel === "public";
+  const title = isPublic ? "المحادثة العامة" : channel === "mafia" ? "قناة سرية" : "محادثة الموتى";
+  const readOnly = isPublic && state.spectator;
+  return `<div class="mafia-channel ${isPublic ? "public-channel" : ""}"><div class="channel-head"><div>${icon(isPublic ? "chat" : channel === "mafia" ? "lock" : "skull")}<strong>${title}</strong></div><span class="channel-mode">${readOnly ? "قراءة فقط" : "محفوظ في الجولة"}</span></div><div class="messages" id="messageList-${channel}">${messageMarkup(channel)}</div>${readOnly ? '<div class="chat-readonly">يمكنك متابعة المحادثة بلا حساب. أنشئ حساب لاعب لتشارك.</div>' : `<form class="chat-compose" data-chat-form="${channel}"><input name="message" maxlength="${isPublic ? 180 : 120}" placeholder="اكتب رسالة قصيرة…" autocomplete="off" aria-label="رسالة"><button type="submit" aria-label="إرسال">${icon("send")}</button></form>`}</div>`;
+}
+
+function messageMarkup(channel) {
+  return (state.messages[channel] || []).map((message) => `<div class="message ${message.mine ? "mine" : ""}">${avatar(message)}<div class="message-bubble"><b>${escapeHtml(message.sender || "لاعب")}</b>${escapeHtml(message.body)}<small>${escapeHtml(message.time)}</small></div></div>`).join("");
+}
+
+function chatStatusLabel() {
+  if (state.chatStatus === "connected") return "متصل الآن";
+  if (state.chatStatus === "connecting") return "جارٍ الاتصال…";
+  return "إعادة الاتصال…";
+}
+
+function formatChatTime(value) {
+  try {
+    return new Intl.DateTimeFormat("ar-MA", { hour: "2-digit", minute: "2-digit" }).format(new Date(value));
+  } catch (_) {
+    return "الآن";
+  }
+}
+
+function normalizeChatMessage(message) {
+  return {
+    ...message,
+    sender: message.sender || "لاعب",
+    initial: message.initial || (message.sender || "ل").charAt(0),
+    accent: message.accent || "a3",
+    time: formatChatTime(message.time),
+    mine: message.userId === state.account?.id,
+  };
+}
+
+function refreshPublicChat() {
+  ["public", "mafia", "dead"].forEach((channel) => {
+    const list = $(`#messageList-${channel}`);
+    if (list) {
+      list.innerHTML = messageMarkup(channel);
+      list.scrollTop = list.scrollHeight;
+    }
+  });
+  const status = $("#publicChatStatus");
+  if (status) {
+    status.className = `chat-live-status status-${state.chatStatus}`;
+    status.textContent = chatStatusLabel();
+  }
 }
 
 function getVoteResult() {
-  const max = Math.max(...Object.values(state.votes));
-  const leaderIds = Object.entries(state.votes).filter(([, count]) => count === max).map(([id]) => id);
+  const countedVotes = Object.entries(state.votes).filter(([, count]) => count > 0);
+  if (!countedVotes.length) return { tie: true, names: [], ids: [] };
+  const max = Math.max(...countedVotes.map(([, count]) => count));
+  const leaderIds = countedVotes.filter(([, count]) => count === max).map(([id]) => id);
   return { tie: leaderIds.length > 1, names: leaderIds.map((id) => state.players.find((p) => p.id === id)?.name || id), ids: leaderIds };
 }
 
 function voteIdentities(candidateId) {
-  const identities = {
-    omar: ["نور", "سلمى", "زياد"],
-    youssef: ["ليان", "عمر"],
-    mariam: ["مريم", "يوسف"],
-  };
-  const voters = [...(identities[candidateId] || [])];
-  if (state.myVote === candidateId && state.voteConfirmed) voters.unshift(state.players.find((player) => player.id === "me").name);
-  return voters.join("، ") || "لا أحد";
+  return (state.voteVoters[candidateId] || []).join("، ") || "لا أحد";
+}
+
+function deterministicIndex(seed, length) {
+  let hash = 0;
+  for (const character of seed) hash = ((hash << 5) - hash + character.charCodeAt(0)) | 0;
+  return Math.abs(hash) % Math.max(1, length);
+}
+
+function scheduleBotVotes() {
+  const key = `${state.round}:${state.voteRound}`;
+  if (scheduledBotVoteKey === key) return;
+  scheduledBotVoteKey = key;
+  const bots = state.players.filter((player) => player.alive && player.bot);
+  bots.forEach((bot, index) => {
+    window.setTimeout(() => {
+      if (state.phase !== "vote" || state.voteClosed || `${state.round}:${state.voteRound}` !== key) return;
+      const allowedIds = state.voteRound > 1 && state.revoteCandidates.length
+        ? state.revoteCandidates.filter((id) => id !== bot.id)
+        : state.players.filter((player) => player.alive && player.id !== bot.id).map((player) => player.id);
+      if (!allowedIds.length) return;
+      const targetId = allowedIds[deterministicIndex(`${bot.rawId || bot.id}:${key}`, allowedIds.length)];
+      state.votes[targetId] = (state.votes[targetId] || 0) + 1;
+      state.voteVoters[targetId] = [...(state.voteVoters[targetId] || []), bot.name];
+      state.voteConfirmations = Math.min(state.players.filter((player) => player.alive).length, state.voteConfirmations + 1);
+      renderGame();
+      if (state.voteConfirmations >= state.players.filter((player) => player.alive).length) window.setTimeout(closeVote, 400);
+    }, 650 + index * 420);
+  });
 }
 
 function closeVote() {
@@ -467,19 +1123,19 @@ function closeVote() {
   if (!result.tie) {
     const eliminated = state.players.find((player) => player.id === result.ids[0]);
     if (eliminated) eliminated.alive = false;
-  } else if (state.voteRound === 1) {
+  } else if (state.voteRound === 1 && result.ids.length) {
     state.revoteCandidates = [...result.ids];
   }
   state.history.push({
     round: state.round,
     title: state.voteRound > 1 ? "إعادة التصويت" : "التصويت العام",
-    result: result.tie ? (state.voteRound > 1 ? "استمر التعادل؛ لا إقصاء." : "تعادل؛ دفاع منفرد لكل مرشح ثم إعادة.") : `${result.names[0]} أُقصي مباشرةً بأعلى الأصوات.`,
-    voters: ["سامي ← عمر", "نور ← مريم", "ليان ← يوسف", "عمر ← مريم", "سلمى ← عمر"],
+    result: !result.ids.length ? "لم يُسجّل أي صوت؛ لا إقصاء." : result.tie ? (state.voteRound > 1 ? "استمر التعادل؛ لا إقصاء." : "تعادل؛ دفاع منفرد لكل مرشح ثم إعادة.") : `${result.names[0]} أُقصي مباشرةً بأعلى الأصوات.`,
+    voters: Object.entries(state.voteVoters).flatMap(([candidateId, voters]) => voters.map((voter) => `${voter} ← ${state.players.find((player) => player.id === candidateId)?.name || candidateId}`)),
     tie: result.tie,
   });
   showToast("أُغلق التصويت وكُشفت هويات المصوّتين");
   renderGame();
-  if (result.tie && state.voteRound === 1) {
+  if (result.tie && result.ids.length && state.voteRound === 1) {
     window.setTimeout(() => startTieDefense(result.ids), 1100);
   } else {
     window.setTimeout(() => goToNextNight(), 1900);
@@ -498,6 +1154,7 @@ function startTieDefense(candidateIds) {
   state.speechQueue = [];
   state.requestedToSpeak = false;
   state.micOn = false;
+  releaseMicrophone();
   state.currentTab = "arena";
   const first = state.players.find((player) => player.id === state.defenseCandidates[0]);
   state.defenseStarted = first?.id !== "me";
@@ -507,6 +1164,7 @@ function startTieDefense(candidateIds) {
 
 function completeDefenseTurn(fromTimer = false) {
   const finished = state.players.find((player) => player.id === state.defenseCandidates[state.defenseIndex]);
+  if (finished?.id === "me") releaseMicrophone();
   state.defenseIndex += 1;
   if (state.defenseIndex < state.defenseCandidates.length) {
     const next = state.players.find((player) => player.id === state.defenseCandidates[state.defenseIndex]);
@@ -520,6 +1178,7 @@ function completeDefenseTurn(fromTimer = false) {
   }
   state.voteRound = 2;
   startVote(true);
+  scheduleBotVotes();
   showToast("انتهت الدفاعات — بدأت إعادة التصويت تلقائياً");
   renderGame();
 }
@@ -531,6 +1190,7 @@ function goToNextNight() {
   resetForNight();
   showToast("بدأت الليلة التالية");
   renderGame();
+  void beginNightNarration();
 }
 
 function startNextSpeaker() {
@@ -541,7 +1201,7 @@ function startNextSpeaker() {
   if (!state.speaker) return startNextSpeaker();
   state.speakerRemaining = state.speakerIndex === 1 ? 120 : 60;
   state.phaseRemaining = state.speakerRemaining;
-  if (nextId === "me") state.micOn = true;
+  state.micOn = false;
   showToast(state.speakerIndex === 1 ? "بدأت أول مداخلة — دقيقتان" : "بدأت المداخلة — دقيقة واحدة");
   renderGame();
 }
@@ -549,6 +1209,7 @@ function startNextSpeaker() {
 function finishCurrentSpeech(fromTimer = false) {
   if (!state.speaker) return;
   const finished = state.speaker;
+  if (finished.id === "me") releaseMicrophone();
   if (finished.id === "me") state.requestedToSpeak = false;
   state.speaker = null;
   state.speakerRemaining = 0;
@@ -563,21 +1224,28 @@ function finishCurrentSpeech(fromTimer = false) {
   }
 }
 
-function handleGameAction(action, target) {
+async function handleGameAction(action, target) {
   if (state.spectator && ["toggle-mic", "request-speech", "self-stop", "confirm-night", "confirm-vote", "begin-defense", "finish-defense", "toggle-death", "toggle-connection"].includes(action)) {
     showToast("وضع المشاهدة للمتابعة فقط");
     return;
   }
   if (action === "toggle-mic") {
-    if (state.speaker && state.speaker.id !== "me") return;
-    state.micOn = !state.micOn;
-    showToast(state.micOn ? "فُتح الميكروفون محلياً (بلا بث)" : "كُتم الميكروفون");
+    await toggleMicrophonePermission();
+    return;
+  } else if (action === "start-audio") {
+    try {
+      await syncVoiceRoom();
+      await liveKitVoice.startAudio();
+      showToast("تم تشغيل صوت الغرفة");
+    } catch (error) { showToast(error.message || "تعذر تشغيل الصوت"); }
+    return;
   } else if (action === "request-speech") {
     if (state.speaker?.id === "me") return;
     state.requestedToSpeak = !state.requestedToSpeak;
     if (state.requestedToSpeak) {
       if (!state.speechQueue.includes("me")) state.speechQueue.push("me");
       if (!state.speaker) startNextSpeaker();
+      if (state.speaker?.id === "me" && !state.micOn) await toggleMicrophonePermission();
       window.setTimeout(() => {
         if (state.phase !== "day") return;
         ["layan", "youssef"].forEach((id) => {
@@ -594,69 +1262,71 @@ function handleGameAction(action, target) {
     finishCurrentSpeech(false);
     return;
   } else if (action === "confirm-night") {
-    if (!state.selectedTarget || state.nightChoiceConfirmed) return;
+    const me = state.players.find((player) => player.id === "me");
+    const isScout = me?.role === "الكشّاف";
+    const choiceReady = isScout ? state.scoutTargets.length === 3 : Boolean(state.selectedTarget);
+    if (!choiceReady || state.nightChoiceConfirmed) return;
+    const requiredConfirmations = me?.role === "أفراد الظل" ? Math.max(1, state.players.filter((player) => player.role === "أفراد الظل" && player.alive).length) : 1;
+    if (isScout) {
+      state.scoutResult = state.scoutTargets.some((id) => state.players.find((player) => player.id === id)?.role === "أفراد الظل");
+    }
     state.nightChoiceConfirmed = true;
-    state.nightConfirmations = 2;
+    state.nightConfirmations = requiredConfirmations;
+    nightAudioTransition = true;
     renderGame();
-    showToast("اكتملت تأكيدات المافيا — يبدأ النهار الآن");
-    window.setTimeout(() => {
+    showToast(isScout ? (state.scoutResult ? "يوجد فرد من الظل داخل المجموعة" : "لا يوجد فرد من الظل داخل المجموعة") : "اكتمل قرار دورك — يبدأ النهار الآن");
+    void (async () => {
+      const sleepCuePlayed = await gameAudio.playRoleSleep(me?.role);
+      if (!sleepCuePlayed) await new Promise((resolve) => window.setTimeout(resolve, isScout ? 2600 : 650));
       if (state.phase !== "night" || !state.nightChoiceConfirmed) return;
-      startDay();
-      renderGame();
-    }, 650);
+      beginDayWithNarration();
+    })();
     return;
   } else if (action === "confirm-vote") {
     if (!state.myVote || state.voteConfirmed || state.voteClosed) return;
     state.voteConfirmed = true;
     state.votes[state.myVote] = (state.votes[state.myVote] || 0) + 1;
-    state.voteConfirmations = state.players.filter((player) => player.alive).length;
+    const voterName = state.players.find((player) => player.id === "me")?.name || "أنت";
+    state.voteVoters[state.myVote] = [...(state.voteVoters[state.myVote] || []), voterName];
+    const aliveCount = state.players.filter((player) => player.alive).length;
+    state.voteConfirmations = Math.min(aliveCount, state.voteConfirmations + 1);
     renderGame();
-    showToast("أكد الجميع أصواتهم — يُغلق الصندوق الآن");
-    window.setTimeout(() => {
-      if (!state.voteClosed && state.voteConfirmed) closeVote();
-    }, 650);
+    if (state.voteConfirmations >= aliveCount) {
+      showToast("أكد الجميع أصواتهم — يُغلق الصندوق الآن");
+      window.setTimeout(() => { if (!state.voteClosed && state.voteConfirmed) closeVote(); }, 650);
+    } else {
+      showToast("تم تأكيد صوتك — ننتظر بقية اللاعبين");
+    }
     return;
   } else if (action === "begin-defense") {
     const candidateId = state.defenseCandidates[state.defenseIndex];
     if (candidateId !== "me" || state.defenseStarted) return;
     state.defenseStarted = true;
-    state.micOn = true;
+    state.micOn = false;
     showToast("بدأ دفاعك — لديك 90 ثانية كحد أقصى");
+    await toggleMicrophonePermission();
   } else if (action === "finish-defense") {
     const candidateId = state.defenseCandidates[state.defenseIndex];
     if (candidateId !== "me" || !state.defenseStarted) return;
+    releaseMicrophone();
     completeDefenseTurn(false);
+    return;
+  } else if (action === "end-round") {
+    try {
+      await apiRequest(`/api/rooms/${encodeURIComponent(activeRoomCode())}/end`, { method: "POST" });
+      state.messages = { public: [], mafia: [], dead: [] };
+      await liveKitVoice.disconnect();
+      roomChat.disconnect();
+      navigate("home", { replace: true });
+      await loadRooms();
+      showToast("انتهت الجولة وحُذفت رسائلها");
+    } catch (error) { showToast(error.message); }
     return;
   } else if (action === "next-night") {
     goToNextNight();
     return;
-  } else if (action === "toggle-death") {
-    const me = state.players.find((player) => player.id === "me");
-    me.alive = !me.alive;
-    state.currentTab = me.alive ? "players" : "chat";
-    showToast(me.alive ? "عُدت إلى قائمة الأحياء" : "أُقصيت تجريبياً — أدوات المضيف ما زالت متاحة");
-  } else if (action === "toggle-connection") {
-    toggleConnection();
   }
   renderGame();
-}
-
-function toggleConnection() {
-  state.connected = !state.connected;
-  state.botActive = !state.connected;
-  const me = state.players.find((player) => player.id === "me");
-  me.connected = state.connected;
-  const chip = $("#connectionChip");
-  chip.classList.toggle("is-offline", !state.connected);
-  $(".connection-copy b", chip).textContent = state.connected ? "متصل" : "إعادة اتصال";
-  $(".connection-copy small", chip).textContent = state.connected ? "محاكاة محلية" : "الروبوت يتولى دورك";
-  if (state.connected) {
-    realtime.connect();
-    showToast("عدت إلى الغرفة واستعدت دورك من الروبوت");
-  } else {
-    realtime.disconnect();
-    showToast("انقطع الاتصال — الروبوت يتولى دورك مؤقتاً");
-  }
 }
 
 function bindEvents() {
@@ -664,15 +1334,48 @@ function bindEvents() {
     const routeButton = event.target.closest("[data-route]");
     if (routeButton) {
       const route = routeButton.dataset.route;
-      if (route === "lobby") requireAccount(() => { state.spectator = false; navigate("lobby"); });
+      if (route === "lobby") requireAccount(() => {
+        if (!activeRoomCode()) return showToast("اختر غرفة أو أنشئ غرفة أولاً");
+        state.spectator = false;
+        navigate("lobby");
+      });
       else navigate(route);
     }
 
     const watchButton = event.target.closest("[data-watch-room]");
-    if (watchButton) watchRoom(watchButton.dataset.watchRoom);
+    if (watchButton) watchRoom(watchButton.dataset.watchRoom).catch((error) => showToast(error.message));
 
     const joinButton = event.target.closest("[data-join-room]");
-    if (joinButton && !joinButton.disabled) requireAccount(() => joinRoomAsPlayer(joinButton.dataset.joinRoom));
+    if (joinButton && !joinButton.disabled) requireAccount(() => joinRoomAsPlayer(joinButton.dataset.joinRoom).catch((error) => showToast(error.message)));
+
+    if (event.target.closest("[data-login-open]")) { closeDrawer(); openAccountDialog(null, "login"); }
+    if (event.target.closest("[data-profile-edit]")) {
+      closeDrawer();
+      if (state.account?.profileComplete === false) openAccountDialog(null, "social-complete");
+      else navigate("profile");
+    }
+    if (event.target.closest("[data-logout]")) {
+      apiRequest("/api/auth/logout", { method: "POST" }).then(() => {
+        setAccount(null);
+        closeDrawer();
+        if (state.route === "profile") navigate("home", { replace: true });
+        showToast("تم تسجيل الخروج");
+      }).catch((error) => showToast(error.message));
+    }
+
+    const authMode = event.target.closest("[data-auth-mode]");
+    if (authMode) showAuthMode(authMode.dataset.authMode);
+
+    const avatarChoice = event.target.closest("[data-profile-avatar]");
+    if (avatarChoice) {
+      selectedProfileAvatar = avatarChoice.dataset.profileAvatar;
+      $$("[data-profile-avatar]").forEach((button) => {
+        const selected = button.dataset.profileAvatar === selectedProfileAvatar;
+        button.classList.toggle("is-selected", selected);
+        button.setAttribute("aria-checked", String(selected));
+      });
+      $("#profileAvatarPreview").innerHTML = profileAvatar({ avatarType: "preset", avatarValue: selectedProfileAvatar }, "profile-page-avatar");
+    }
 
     const tabButton = event.target.closest("[data-game-tab]");
     if (tabButton) {
@@ -682,8 +1385,18 @@ function bindEvents() {
 
     const targetButton = event.target.closest("[data-target]");
     if (targetButton && !state.spectator && !state.nightChoiceConfirmed) {
-      state.selectedTarget = targetButton.dataset.target;
-      showToast(`اختيار مبدئي: ${state.players.find((p) => p.id === state.selectedTarget).name} — أكّد للمتابعة`);
+      const me = state.players.find((player) => player.id === "me");
+      if (me?.role === "الكشّاف") {
+        const targetId = targetButton.dataset.target;
+        if (state.scoutTargets.includes(targetId)) state.scoutTargets = state.scoutTargets.filter((id) => id !== targetId);
+        else if (state.scoutTargets.length < 3) state.scoutTargets.push(targetId);
+        else showToast("يمكن للكشّاف اختيار ثلاثة لاعبين فقط");
+        if (state.scoutTargets.length < 3) showToast(`اختير ${state.scoutTargets.length} من 3 لاعبين`);
+        else showToast("اكتملت المجموعة — أكّد الفحص");
+      } else {
+        state.selectedTarget = targetButton.dataset.target;
+        showToast(`اختيار مبدئي: ${state.players.find((p) => p.id === state.selectedTarget).name} — أكّد للمتابعة`);
+      }
       renderGame();
     }
 
@@ -700,81 +1413,158 @@ function bindEvents() {
   $("#menuButton").addEventListener("click", openDrawer);
   $("#closeMenuButton").addEventListener("click", closeDrawer);
   $("#scrim").addEventListener("click", closeDrawer);
-  $("#connectionChip").addEventListener("click", () => { toggleConnection(); if (state.route === "game") renderGame(); });
-  $("#accountButton").addEventListener("click", () => openAccountDialog());
+  $("#leaveLobbyButton").addEventListener("click", leaveCurrentRoom);
+  $("#leaveGameButton").addEventListener("click", leaveCurrentRoom);
+  $("#closeAccountDialog").addEventListener("click", () => {
+    pendingAccountAction = null;
+    $("#accountDialog").close();
+  });
+  $("#accountBirthMonth").addEventListener("change", () => syncBirthDays());
+  $("#accountBirthYear").addEventListener("change", () => syncBirthDays());
+  $("#profileBirthMonth").addEventListener("change", () => syncProfileBirthDays());
+  $("#profileBirthYear").addEventListener("change", () => syncProfileBirthDays());
+  $("#accountForm").addEventListener("input", () => { $("#accountError").textContent = ""; });
+  $("#accountForm").addEventListener("focusout", (event) => {
+    const message = validateAccountField(event.target);
+    if (message) $("#accountError").textContent = message;
+  });
+  $("#loginForm").addEventListener("input", () => { $("#loginError").textContent = ""; });
 
-  $("#accountForm").addEventListener("submit", (event) => {
+  $("#loginForm").addEventListener("submit", async (event) => {
     event.preventDefault();
-    const displayName = $("#accountNameInput").value.trim();
-    const username = $("#accountUsernameInput").value.trim();
-    const emailInput = $("#accountEmailInput");
-    const email = emailInput.value.trim();
-    const birthDate = $("#accountBirthInput").value;
-    const password = $("#accountPasswordInput").value;
-    const today = new Date().toISOString().slice(0, 10);
-    let error = "";
-    if (displayName.length < 2) error = "اكتب اسماً ظاهراً من حرفين على الأقل.";
-    else if (username.length < 3 || /\s/.test(username)) error = "اسم المستخدم يجب أن يكون 3 أحرف على الأقل ومن دون مسافات.";
-    else if (!emailInput.validity.valid || !email) error = "اكتب بريداً إلكترونياً صالحاً.";
-    else if (!birthDate || birthDate >= today) error = "اختر تاريخ ميلاد صحيحاً.";
-    else if (!state.account && password.length < 8) error = "كلمة المرور يجب أن تتكون من 8 أحرف على الأقل.";
-    else if (state.account && password && password.length < 8) error = "كلمة المرور الجديدة يجب أن تتكون من 8 أحرف على الأقل.";
+    $("#loginError").textContent = "";
+    const identity = $("#loginIdentity").value.trim();
+    const password = $("#loginPassword").value;
+    if (!identity) {
+      $("#loginError").textContent = "اكتب البريد الإلكتروني أو اسم المستخدم.";
+      $("#loginIdentity").focus();
+      return;
+    }
+    if (!password) {
+      $("#loginError").textContent = "اكتب كلمة المرور.";
+      $("#loginPassword").focus();
+      return;
+    }
+    const submitButton = event.submitter;
+    if (submitButton) submitButton.disabled = true;
+    try {
+      const data = await apiRequest("/api/auth/login", { method: "POST", body: JSON.stringify({ login: identity, password }) });
+      setAccount(data.user);
+      $("#accountDialog").close();
+      showToast("مرحباً بعودتك");
+      const action = pendingAccountAction;
+      pendingAccountAction = null;
+      if (action) await action();
+    } catch (error) {
+      $("#loginError").textContent = error.message;
+    } finally {
+      if (submitButton) submitButton.disabled = false;
+    }
+  });
+
+  $("#accountForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const completingSocial = currentAuthMode === "social-complete";
+    const wasEditing = currentAuthMode === "profile";
+    const formData = accountFormData();
+    const error = validateAccountData(formData);
     if (error) {
       $("#accountError").textContent = error;
       return;
     }
-    saveAccount({ displayName, username, email, birthDate });
-    $("#accountDialog").close();
-    renderAccountChip();
-    renderLobby();
-    showToast("تم حفظ حساب اللاعب محلياً");
-    const action = pendingAccountAction;
-    pendingAccountAction = null;
-    if (action) window.setTimeout(action, 180);
+    const submitButton = event.submitter;
+    if (submitButton) submitButton.disabled = true;
+    try {
+      const endpoint = completingSocial ? "/api/auth/complete-profile" : state.account ? "/api/profile" : "/api/auth/register";
+      const method = completingSocial ? "POST" : state.account ? "PATCH" : "POST";
+      const data = await apiRequest(endpoint, { method, body: JSON.stringify({ displayName: formData.displayName, username: formData.username, email: formData.email, birthDate: formData.birthDate, password: formData.password }) });
+      setAccount(data.user);
+      $("#accountDialog").close();
+      renderLobby();
+      showToast(wasEditing ? "تم حفظ الملف الشخصي" : completingSocial ? "اكتمل حسابك، مرحباً بك" : "تم إنشاء الحساب");
+      const action = pendingAccountAction;
+      pendingAccountAction = null;
+      if (action) await action();
+    } catch (apiError) {
+      $("#accountError").textContent = apiError.message;
+    } finally {
+      if (submitButton) submitButton.disabled = false;
+    }
+  });
+
+  $("#profileForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const displayName = $("#profileNameInput").value.trim();
+    const username = $("#profileUsernameInput").value.trim();
+    const day = $("#profileBirthDay").value;
+    const month = $("#profileBirthMonth").value;
+    const year = $("#profileBirthYear").value;
+    const birthDate = day && month && year ? `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}` : "";
+    const currentPassword = $("#profileCurrentPassword").value;
+    const newPassword = $("#profileNewPassword").value;
+    const confirmPassword = $("#profileConfirmPassword").value;
+    let error = "";
+    if (displayName.length < 2) error = "اكتب اسماً ظاهراً من حرفين على الأقل.";
+    else if (!/^[\p{L}\p{N}._-]{3,24}$/u.test(username)) error = "اسم المستخدم غير صالح.";
+    else {
+      const parsed = birthDate ? new Date(`${birthDate}T00:00:00`) : null;
+      const validDate = parsed && !Number.isNaN(parsed.getTime()) && parsed.getFullYear() === Number(year) && parsed.getMonth() + 1 === Number(month) && parsed.getDate() === Number(day);
+      if (!validDate || birthDate >= new Date().toISOString().slice(0, 10)) error = "اختر تاريخ ميلاد صحيحاً.";
+    }
+    if (!error && (currentPassword || newPassword || confirmPassword)) {
+      if (!currentPassword) error = "اكتب كلمة المرور الحالية أولاً.";
+      else if (newPassword.length < 8) error = "كلمة المرور الجديدة يجب أن تتكون من 8 أحرف على الأقل.";
+      else if (newPassword !== confirmPassword) error = "تأكيد كلمة المرور الجديدة غير مطابق.";
+    }
+    if (error) {
+      $("#profileError").textContent = error;
+      return;
+    }
+    const submitButton = event.submitter;
+    if (submitButton) submitButton.disabled = true;
+    try {
+      const data = await apiRequest("/api/profile", { method: "PATCH", body: JSON.stringify({ displayName, username, birthDate, avatarValue: selectedProfileAvatar, currentPassword, newPassword }) });
+      setAccount(data.user);
+      renderProfilePage();
+      showToast("تم حفظ الملف الشخصي");
+    } catch (apiError) {
+      $("#profileError").textContent = apiError.message;
+    } finally {
+      if (submitButton) submitButton.disabled = false;
+    }
   });
 
   $("#createRoomButton").addEventListener("click", () => {
-    requireAccount(() => {
-      state.spectator = false;
-      const code = `MAF-${Math.floor(100 + Math.random() * 899)}`;
-      const room = {
-        id: `local-${Date.now()}`,
-        name: `غرفة ${state.account.displayName}`,
-        code,
-        status: "بانتظار اللاعبين",
-        phase: "day",
-        players: state.players.length,
-        capacity: 20,
-        spectators: 0,
-        private: state.options.privateRoom,
-      };
-      state.rooms.unshift(room);
-      state.activeRoomId = room.id;
-      $("#roomCode").textContent = code;
-      renderRoomDirectory();
-      navigate("lobby");
-      showToast("أُنشئت غرفة تجريبية على هذا الجهاز");
+    requireAccount(async () => {
+      try {
+        const data = await apiRequest("/api/rooms", { method: "POST", body: JSON.stringify({ private: state.options.privateRoom }) });
+        state.spectator = false;
+        state.rooms.unshift(data.room);
+        await loadRoom(data.room.code);
+        navigate("lobby");
+        void gameAudio.play("welcome");
+        showToast("أُنشئت الغرفة في QINAA");
+      } catch (error) { showToast(error.message); }
     });
   });
   $("#joinRoomButton").addEventListener("click", () => requireAccount(() => $("#joinDialog").showModal()));
-  $("#joinForm").addEventListener("submit", (event) => {
+  $("#joinForm").addEventListener("submit", async (event) => {
     event.preventDefault();
     const code = $("#roomCodeInput").value.trim().toUpperCase();
-    if (!/^MAF-[0-9]{3}$/.test(code)) {
-      $("#joinError").textContent = "اكتب رمز غرفة صالحاً (جرّب MAF-728).";
+    if (!/^QNA-[0-9]{3}$/.test(code)) {
+      $("#joinError").textContent = "اكتب رمز غرفة صالحاً (جرّب QNA-728).";
       return;
     }
-    state.spectator = false;
-    const matchingRoom = state.rooms.find((room) => room.code === code);
-    if (matchingRoom) {
-      state.activeRoomId = matchingRoom.id;
-      state.options.privateRoom = Boolean(matchingRoom.private);
-    }
-    $("#roomCode").textContent = code;
-    $("#joinDialog").close();
-    $("#joinError").textContent = "";
-    navigate("lobby");
-    showToast("دخلت الغرفة التجريبية بنجاح");
+    try {
+      await apiRequest(`/api/rooms/${encodeURIComponent(code)}/join`, { method: "POST" });
+      await loadRoom(code);
+      state.spectator = false;
+      $("#joinDialog").close();
+      $("#joinError").textContent = "";
+      navigate("lobby");
+      void gameAudio.play("welcome");
+      showToast("دخلت الغرفة بنجاح");
+    } catch (error) { $("#joinError").textContent = error.message; }
   });
 
   $("#copyCodeButton").addEventListener("click", async () => {
@@ -785,20 +1575,14 @@ function bindEvents() {
     window.setTimeout(() => { $("#copyCodeButton span").textContent = "نسخ"; }, 1400);
   });
 
-  $("#addMockPlayer").addEventListener("click", () => {
-    const names = ["هاجر", "آدم", "سارة", "أنس", "رنا", "أيوب", "دانا", "مهدي", "ريم", "بدر", "هناء", "مالك"];
-    if (state.players.length >= 20) return showToast("وصلت الغرفة إلى الحد الأقصى: 20 لاعباً");
-    const name = names[(state.players.length - 8) % names.length];
-    state.players.push({ id: `mock-${Date.now()}`, name, initial: name.charAt(0), accent: `a${(state.players.length % 6) + 1}`, alive: true, connected: true, role: "مواطن" });
-    renderLobby();
-  });
-  $("#lobbyPlayers").addEventListener("click", (event) => {
+  $("#lobbyPlayers").addEventListener("click", async (event) => {
     const kick = event.target.closest("[data-kick]");
     if (!kick) return;
-    const removed = state.players.find((player) => player.id === kick.dataset.kick);
-    state.players = state.players.filter((player) => player.id !== kick.dataset.kick);
-    renderLobby();
-    showToast(`أخرج المضيف ${removed?.name || "اللاعب"} من الغرفة`);
+    try {
+      await apiRequest(`/api/rooms/${encodeURIComponent(activeRoomCode())}/members/${encodeURIComponent(kick.dataset.kick)}`, { method: "DELETE" });
+      await loadRoom(activeRoomCode());
+      showToast("تم إخراج اللاعب من الغرفة");
+    } catch (error) { showToast(error.message); }
   });
   $("#spectatorList").addEventListener("click", (event) => {
     const kick = event.target.closest("[data-kick-spectator]");
@@ -808,22 +1592,36 @@ function bindEvents() {
     renderLobby();
     showToast(`أخرج المضيف ${removed?.name || "المشاهد"} من الغرفة`);
   });
-  $("#cupidToggle").addEventListener("change", (event) => { state.options.cupid = event.target.checked; saveOptions(); showToast(state.options.cupid ? "أُضيف كيوبيد إلى التوزيع" : "أُزيل كيوبيد"); });
-  $("#witchToggle").addEventListener("change", (event) => { state.options.witch = event.target.checked; saveOptions(); showToast(state.options.witch ? "أُضيفت الساحرة إلى التوزيع" : "أُزيلت الساحرة"); });
-  $("#privateRoomToggle").addEventListener("change", (event) => {
+  $("#cupidToggle").addEventListener("change", (event) => { state.options.cupid = event.target.checked; saveOptions(); showToast(state.options.cupid ? "أُضيفت الخطّابة — رابطة القلوب" : "أُزيلت الخطّابة"); });
+  $("#witchToggle").addEventListener("change", (event) => { state.options.witch = event.target.checked; saveOptions(); showToast(state.options.witch ? "أُضيفت الساحرة — حارسة الجرعات" : "أُزيلت الساحرة"); });
+  $("#privateRoomToggle").addEventListener("change", async (event) => {
     state.options.privateRoom = event.target.checked;
     const activeRoom = state.rooms.find((room) => room.id === state.activeRoomId);
     if (activeRoom) activeRoom.private = state.options.privateRoom;
     saveOptions();
-    renderRoomDirectory();
-    showToast(state.options.privateRoom ? "أصبحت الغرفة خاصة ومخفية عن المشاهدين" : "أصبحت الغرفة عامة وقابلة للمشاهدة");
+    try {
+      if (activeRoomCode()) await apiRequest(`/api/rooms/${encodeURIComponent(activeRoomCode())}`, { method: "PATCH", body: JSON.stringify({ private: state.options.privateRoom }) });
+      await loadRooms();
+      showToast(state.options.privateRoom ? "أصبحت الغرفة خاصة ومخفية عن المشاهدين" : "أصبحت الغرفة عامة وقابلة للمشاهدة");
+    } catch (error) { showToast(error.message); }
   });
-  $("#startGameButton").addEventListener("click", () => requireAccount(() => $("#roleDialog").showModal()));
-  $("#enterGameButton").addEventListener("click", () => {
-    $("#roleDialog").close();
-    resetForNight();
-    navigate("game");
+  $("#startGameButton").addEventListener("click", () => requireAccount(async () => {
+    try {
+      const data = await apiRequest(`/api/rooms/${encodeURIComponent(activeRoomCode())}/start`, { method: "POST", body: JSON.stringify({ options: state.options }) });
+      await loadRoom(activeRoomCode());
+      prepareRoleReveal(data.role, data.partners || []);
+      if (data.botsAdded) showToast(`أضيف ${data.botsAdded} من الروبوتات لإكمال الجولة`);
+    } catch (error) { showToast(error.message); }
+  }));
+  $("#roleFlipButton").addEventListener("click", revealRole);
+  $("#roleFlipButton").addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      revealRole();
+    }
   });
+  $("#roleDialog").addEventListener("cancel", (event) => event.preventDefault());
+  $("#enterGameButton").addEventListener("click", enterGameAfterRole);
 
   gameContent.addEventListener("submit", (event) => {
     const form = event.target.closest("[data-chat-form]");
@@ -834,51 +1632,106 @@ function bindEvents() {
     const body = input.value.trim();
     if (!body) return;
     const channel = form.dataset.chatForm;
-    const me = state.players.find((player) => player.id === "me");
-    const payload = { id: Date.now(), sender: me.name, initial: me.initial, accent: me.accent, body, time: "الآن", mine: true };
-    state.messages[channel].push(payload);
-    realtime.send(channel, payload);
+    if (!roomChat.send(body, channel)) {
+      showToast("المحادثة تعيد الاتصال — حاول بعد لحظة");
+      return;
+    }
     input.value = "";
-    realtime.simulateReply(channel);
-    renderGame();
   });
 
-  realtime.addEventListener("remote-message", (event) => {
-    state.messages[event.detail.channel].push(event.detail.payload);
-    if (state.route === "game" && state.currentTab === "chat") renderGame();
-    else showToast("وصلت رسالة تجريبية جديدة");
+  roomChat.addEventListener("status", (event) => {
+    state.chatStatus = event.detail;
+    refreshPublicChat();
+  });
+
+  roomChat.addEventListener("histories", (event) => {
+    ["public", "mafia", "dead"].forEach((channel) => { state.messages[channel] = (event.detail[channel] || []).map(normalizeChatMessage); });
+    refreshPublicChat();
+  });
+
+  roomChat.addEventListener("message", (event) => {
+    const channel = event.detail.channel || "public";
+    state.messages[channel].push(normalizeChatMessage(event.detail));
+    state.messages[channel] = state.messages[channel].slice(-60);
+    refreshPublicChat();
+  });
+
+  roomChat.addEventListener("chat-error", (event) => showToast(event.detail));
+  liveKitVoice.addEventListener("status", (event) => {
+    state.voiceStatus = event.detail;
+    if (state.route === "game") renderGame();
+  });
+  liveKitVoice.addEventListener("microphone", (event) => {
+    state.micOn = Boolean(event.detail);
+    if (state.route === "game") renderGame();
+  });
+  liveKitVoice.addEventListener("audio-blocked", (event) => {
+    if (event.detail) showToast("اضغط على تشغيل الصوت ليسمح المتصفح بالاستماع");
+  });
+  roomChat.addEventListener("round-ended", async () => {
+    state.messages = { public: [], mafia: [], dead: [] };
+    navigate("home", { replace: true });
+    await loadRooms();
+    showToast("انتهت الجولة، رجعناك للرئيسية");
+  });
+
+  window.addEventListener("popstate", async () => {
+    const valid = await syncRoomFromPath();
+    navigate(valid ? routeFromPath() : "home", { fromHistory: true });
   });
 }
 
-loadLocalState();
-bindEvents();
-renderAccountChip();
-renderRoomDirectory();
-renderLobby();
-const demoPhase = new URLSearchParams(window.location.search).get("demo");
-if (demoPhase === "vote") {
-  startVote();
-  navigate("game");
-} else if (demoPhase === "revote") {
-  state.revoteCandidates = ["omar", "mariam"];
-  state.voteRound = 2;
-  startVote(true);
-  navigate("game");
-} else if (demoPhase === "defense") {
-  state.phase = "defense";
-  state.phaseSeconds = 90;
-  state.phaseRemaining = 90;
-  state.defenseCandidates = ["omar", "mariam"];
-  state.defenseIndex = 0;
-  state.defenseRemaining = 90;
-  state.defenseStarted = true;
-  state.revoteCandidates = ["omar", "mariam"];
-  state.currentTab = "arena";
-  navigate("game");
-} else {
-  navigate("home");
+function showMaintenance(message) {
+  document.body.innerHTML = `
+    <main class="maintenance-screen">
+      <section>
+        <span class="maintenance-mark">ق</span>
+        <small>QINAA</small>
+        <h1>نعود بعد قليل</h1>
+        <p>${escapeHtml(message || "قِناع في صيانة قصيرة. سنعود قريباً.")}</p>
+        <a href="/admindash">دخول الإدارة</a>
+      </section>
+    </main>`;
 }
-realtime.connect();
+
+async function bootstrap() {
+  populateBirthDateFields();
+  populateProfileBirthDateFields();
+  loadLocalState();
+  bindEvents();
+  let authUser = null;
+  try {
+    const auth = await apiRequest("/api/auth/me");
+    authUser = auth.user;
+    setAccount(authUser);
+  } catch (_) { setAccount(null); }
+  try {
+    const config = await apiRequest("/api/site/config");
+    if (config.maintenanceMode && !authUser?.adminRole) return showMaintenance(config.maintenanceMessage);
+  } catch (_) { /* Keep the public site available if config cannot be loaded. */ }
+  try { await loadRooms(); } catch (error) { showToast(error.message); }
+
+  const oauthStatus = new URLSearchParams(location.search).get("auth");
+  if (oauthStatus?.includes("not-configured")) showToast("الدخول الاجتماعي يحتاج مفاتيح المنصة أولاً");
+  else if (oauthStatus === "failed") showToast("تعذر إكمال تسجيل الدخول الاجتماعي");
+  else if (oauthStatus === "success") showToast("تم تسجيل الدخول بنجاح");
+  if (oauthStatus) {
+    const cleanUrl = new URL(location.href);
+    cleanUrl.searchParams.delete("auth");
+    history.replaceState(history.state, "", `${cleanUrl.pathname}${cleanUrl.search}${cleanUrl.hash}`);
+  }
+  if (state.account?.profileComplete === false) openAccountDialog(null, "social-complete");
+
+  const requestedRoute = routeFromPath();
+  const valid = await syncRoomFromPath();
+  if (!valid) navigate("home", { replace: true });
+  else {
+    if (requestedRoute === "game") state.spectator = !state.players.some((player) => player.id === "me");
+    navigate(requestedRoute, { replace: true });
+  }
+}
+
+bootstrap();
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));
