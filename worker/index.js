@@ -1154,7 +1154,13 @@ async function startBluffRound(env, room, round, user) {
     id: crypto.randomUUID(), type: type.id, variant: index + 1,
   }))));
   const now = new Date().toISOString();
-  const firstPlayer = shuffled(playerIds)[0];
+  const openingHandCounts = new Map(playerIds.map((userId) => [userId, 0]));
+  cards.forEach((_, index) => {
+    const ownerId = recipients[index % recipients.length];
+    openingHandCounts.set(ownerId, (openingHandCounts.get(ownerId) || 0) + 1);
+  });
+  const largestOpeningHand = Math.max(...openingHandCounts.values());
+  const firstPlayer = shuffled(playerIds.filter((userId) => openingHandCounts.get(userId) === largestOpeningHand))[0];
   await env.DB.batch([
     env.DB.prepare(`
       INSERT INTO bluff_round_state

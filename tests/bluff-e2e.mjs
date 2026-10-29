@@ -37,6 +37,20 @@ const step = (message) => process.stdout.write(`✓ ${message}\n`);
 async function main() {
   const players = [new Client("first"), new Client("second"), new Client("third")];
   await Promise.all(players.map((client, index) => client.register(index + 1)));
+
+  const openingPlayers = Array.from({ length: 5 }, (_, index) => new Client(`opening-${index + 1}`));
+  await Promise.all(openingPlayers.map((client, index) => client.register(index + 10)));
+  const openingRoom = await openingPlayers[0].request("/api/rooms", { method: "POST", expected: 201, body: { gameType: "bluff", private: false } });
+  await Promise.all(openingPlayers.slice(1).map((client) => client.request(`/api/rooms/${openingRoom.room.code}/join`, { method: "POST" })));
+  await openingPlayers[0].request(`/api/rooms/${openingRoom.room.code}/start`, { method: "POST", body: {} });
+  const openingState = await openingPlayers[0].request(`/api/rooms/${openingRoom.room.code}/bluff`);
+  const openingMaximum = Math.max(...openingState.players.map((player) => player.handCount));
+  assert.equal(openingMaximum, 13);
+  assert.ok(openingState.players.filter((player) => player.handCount === openingMaximum).map((player) => player.id).includes(openingState.currentPlayerId));
+  assert.notEqual(openingState.players.find((player) => player.handCount === 12).id, openingState.currentPlayerId);
+  await openingPlayers[0].request(`/api/rooms/${openingRoom.room.code}/end`, { method: "POST" });
+  step("عند تعادل أصحاب أكبر يد يبدأ واحد منهم عشوائياً ولا يبدأ صاحب اليد الأصغر");
+
   const created = await players[0].request("/api/rooms", { method: "POST", expected: 201, body: { gameType: "bluff", private: false } });
   const code = created.room.code;
   assert.equal(created.room.capacity, 5);
@@ -49,6 +63,9 @@ async function main() {
   const counts = states[0].players.map((player) => player.handCount);
   assert.equal(counts.reduce((sum, count) => sum + count, 0), 64);
   assert.ok(Math.max(...counts) - Math.min(...counts) <= 1);
+  const largestOpeningHand = Math.max(...counts);
+  const validOpeningPlayers = states[0].players.filter((player) => player.handCount === largestOpeningHand).map((player) => player.id);
+  assert.ok(validOpeningPlayers.includes(states[0].currentPlayerId));
   states.forEach((state, index) => {
     assert.equal(state.me.hand.length, state.players.find((player) => player.id === players[index].user.id).handCount);
     assert.equal(state.cardTypes.length, 8);
@@ -100,6 +117,7 @@ async function main() {
   await finalTarget.request(`/api/rooms/${code}/bluff/answer`, { method: "POST", body: { answer: true } });
   const passedResult = await players[0].request(`/api/rooms/${code}/bluff`);
   assert.equal(passedResult.lastResult.penaltyUserId, secondTarget.user.id);
+  assert.equal(passedResult.currentPlayerId, secondTarget.user.id);
   step("المشاهدة السرية والتمرير للاعب غير مطّلع يعملان، والأخير مجبر على الحكم");
 
   await finalTarget.request(`/api/rooms/${code}/leave`, { method: "DELETE" });
