@@ -70,6 +70,7 @@ async function main() {
   const targetState = await firstTarget.request(`/api/rooms/${code}/bluff`);
   assert.equal(targetState.me.canAnswer, true);
   assert.equal(targetState.me.activeCard, null);
+  assert.ok(targetState.actionSecondsRemaining > 0 && targetState.actionSecondsRemaining <= 59);
   const unrelated = players.find((client) => ![currentClient, firstTarget].includes(client));
   await unrelated.request(`/api/rooms/${code}/bluff/peek`, { method: "POST", body: {}, expected: 409 });
   await firstTarget.request(`/api/rooms/${code}/bluff/answer`, { method: "POST", body: { answer: true } });
@@ -77,6 +78,9 @@ async function main() {
   assert.equal(currentState.lastResult.correct, true);
   assert.equal(currentState.lastResult.penaltyUserId, currentClient.user.id);
   assert.equal(currentState.currentPlayerId, currentClient.user.id);
+  const currentPublic = currentState.players.find((player) => player.id === currentClient.user.id);
+  assert.equal(currentPublic.penalties.reduce((sum, penalty) => sum + penalty.count, 0), 1);
+  assert.equal(currentPublic.penalties[0].type, firstCard.type);
   step("الادعاء والحكم الصحيح يضعان العقوبة على المرسل ويعيدان له الدور");
 
   const secondPrivate = await currentClient.request(`/api/rooms/${code}/bluff`);
@@ -88,6 +92,7 @@ async function main() {
   const peeked = await secondTarget.request(`/api/rooms/${code}/bluff`);
   assert.equal(peeked.me.activeCard.type, secondCard.type);
   assert.equal(peeked.me.passTargets.length, 1);
+  assert.ok(peeked.actionSecondsRemaining > 0 && peeked.actionSecondsRemaining <= 59);
   const finalTarget = byId.get(peeked.me.passTargets[0]);
   await secondTarget.request(`/api/rooms/${code}/bluff/pass`, { method: "POST", body: { targetUserId: finalTarget.user.id, claim: secondCard.type } });
   const finalState = await finalTarget.request(`/api/rooms/${code}/bluff`);

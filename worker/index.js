@@ -1188,7 +1188,7 @@ async function performBluffPlay(env, context, actorId, cardId, targetUserId, cla
       UPDATE bluff_round_state SET phase = 'respond', active_card_id = ?, sender_user_id = ?, receiver_user_id = ?,
         claimed_type = ?, seen_user_ids = ?, action_deadline = ?, last_result_json = NULL, version = version + 1, updated_at = ?
       WHERE round_id = ?
-    `).bind(cardId, actorId, targetUserId, claim, JSON.stringify([actorId]), bluffDeadline(), now, context.round_id),
+  `).bind(cardId, actorId, targetUserId, claim, JSON.stringify([actorId]), bluffDeadline(59), now, context.round_id),
   ]);
 }
 
@@ -1198,7 +1198,7 @@ async function performBluffPeek(env, context, actorId) {
   const active = await activeBluffPlayers(env, context.round_id);
   if (!active.some((userId) => userId !== actorId && !seen.includes(userId))) throw new Error("أنت آخر من لم ير البطاقة، ويجب أن تحكم على الادعاء.");
   await env.DB.prepare("UPDATE bluff_round_state SET phase = 'pass', seen_user_ids = ?, action_deadline = ?, version = version + 1, updated_at = ? WHERE round_id = ?")
-    .bind(JSON.stringify(seen), bluffDeadline(), new Date().toISOString(), context.round_id).run();
+    .bind(JSON.stringify(seen), bluffDeadline(59), new Date().toISOString(), context.round_id).run();
 }
 
 async function performBluffPass(env, context, actorId, targetUserId, claim) {
@@ -1210,7 +1210,7 @@ async function performBluffPass(env, context, actorId, targetUserId, claim) {
   await env.DB.prepare(`
     UPDATE bluff_round_state SET phase = 'respond', sender_user_id = ?, receiver_user_id = ?, claimed_type = ?,
       seen_user_ids = ?, action_deadline = ?, version = version + 1, updated_at = ? WHERE round_id = ?
-  `).bind(actorId, targetUserId, claim, JSON.stringify(seen), bluffDeadline(), new Date().toISOString(), context.round_id).run();
+  `).bind(actorId, targetUserId, claim, JSON.stringify(seen), bluffDeadline(59), new Date().toISOString(), context.round_id).run();
 }
 
 async function performBluffAnswer(env, context, actorId, answer) {
@@ -1299,7 +1299,7 @@ async function runBluffAutomaticActions(env, context) {
         const claim = BLUFF_CARD_TYPES[Math.floor(Math.random() * BLUFF_CARD_TYPES.length)].id;
         await performBluffPass(env, context, actorId, targets[Math.floor(Math.random() * targets.length)], claim);
       } else {
-        await env.DB.prepare("UPDATE bluff_round_state SET phase = 'respond', action_deadline = ?, updated_at = ? WHERE round_id = ?").bind(bluffDeadline(), new Date().toISOString(), context.round_id).run();
+        await env.DB.prepare("UPDATE bluff_round_state SET phase = 'respond', action_deadline = ?, updated_at = ? WHERE round_id = ?").bind(bluffDeadline(59), new Date().toISOString(), context.round_id).run();
       }
       changed = true;
       continue;
@@ -1344,6 +1344,20 @@ async function bluffState(request, env, code) {
   const penaltyRows = assignment ? await env.DB.prepare(`
     SELECT animal_type, COUNT(*) AS total FROM bluff_cards WHERE round_id = ? AND owner_user_id = ? AND zone = 'penalty' GROUP BY animal_type
   `).bind(context.round_id, user.id).all() : { results: [] };
+  const publicPenaltyRows = await env.DB.prepare(`
+    SELECT owner_user_id, animal_type, COUNT(*) AS total FROM bluff_cards
+    WHERE round_id = ? AND zone = 'penalty' GROUP BY owner_user_id, animal_type
+  `).bind(context.round_id).all();
+  const publicPenalties = new Map();
+  for (const row of publicPenaltyRows.results) {
+    if (!publicPenalties.has(row.owner_user_id)) publicPenalties.set(row.owner_user_id, []);
+    publicPenalties.get(row.owner_user_id).push({
+      type: row.animal_type,
+      name: bluffType(row.animal_type)?.name,
+      color: bluffType(row.animal_type)?.color,
+      count: Number(row.total),
+    });
+  }
   const activeIds = players.results.filter((player) => !player.eliminated_at).map((player) => player.id);
   const seen = jsonArray(context.seen_user_ids);
   const knowsCard = assignment && seen.includes(user.id);
@@ -1368,6 +1382,7 @@ async function bluffState(request, env, code) {
       id: player.id, name: player.display_name, avatarType: player.avatar_type, avatarValue: player.avatar_value,
       host: Boolean(player.is_host), eliminated: Boolean(player.eliminated_at), placement: player.placement,
       handCount: Number(player.hand_count || 0), penaltyCount: Number(player.penalty_count || 0), penaltyTypes: Number(player.penalty_types || 0), bot: isBotId(player.id),
+      penalties: publicPenalties.get(player.id) || [],
     })),
     me: assignment ? {
       id: user.id,

@@ -6,7 +6,7 @@ import {
   resetForNight,
   startDay,
   startVote,
-} from "./state.js?v=32";
+} from "./state.js?v=33";
 import { roomChat } from "./services/room-chat.js?v=20";
 import { liveKitVoice } from "./services/livekit-voice.js?v=21";
 import { gameAudio } from "./services/game-audio.js?v=23";
@@ -962,7 +962,22 @@ function startTicker() {
   if (gameTicker) return;
   gameTicker = window.setInterval(() => {
     if (state.route !== "game") return;
-    if (isBluffRoom()) return;
+    if (isBluffRoom()) {
+      if (["respond", "pass"].includes(state.bluffGame?.phase) && Number.isFinite(state.bluffGame?.actionSecondsRemaining)) {
+        state.bluffGame.actionSecondsRemaining = Math.max(0, state.bluffGame.actionSecondsRemaining - 1);
+        const remaining = state.bluffGame.actionSecondsRemaining;
+        const timer = $("#timerValue");
+        const actionClock = $("#bluffActionClock");
+        if (timer) timer.textContent = formatTime(remaining);
+        if (actionClock) actionClock.textContent = formatTime(remaining);
+        $("#phaseProgress").style.width = `${Math.max(0, Math.min(100, (remaining / 59) * 100))}%`;
+        if (remaining === 0) {
+          state.bluffGame.actionSecondsRemaining = null;
+          loadBluffState().then(renderGame).catch(() => {});
+        }
+      }
+      return;
+    }
     if (isImposterRoom()) {
       if (state.imposterGame?.phase === "vote" && Number.isFinite(state.imposterGame.voteSecondsRemaining)) {
         state.imposterGame.voteSecondsRemaining = Math.max(0, state.imposterGame.voteSecondsRemaining - 1);
@@ -1143,17 +1158,45 @@ function bluffCardTemplate(card, selectable = false) {
   const selected = state.bluffSelectedCard === card.id;
   return `<button class="bluff-card ${selectable ? "is-selectable" : ""} ${selected ? "is-selected" : ""}" style="--card-color:${escapeHtml(card.color || "#8f5cff")}" ${selectable ? `data-bluff-card="${escapeHtml(card.id)}"` : "disabled"} type="button">
     <span class="bluff-card-pattern">${escapeHtml(card.symbol || "◆")}</span>
-    <b>${escapeHtml(card.name || "بطاقة")}</b><small>نسخة ${Number(card.variant || 1)}</small>
+    <b>${escapeHtml(card.name || "بطاقة")}</b><small>${card.count ? `${card.count} بطاقات` : "البطاقة الحقيقية"}</small>${card.count ? `<strong class="bluff-card-count">${card.count}</strong>` : ""}
   </button>`;
 }
 
+function bluffHandGroups(hand = []) {
+  const groups = new Map();
+  hand.forEach((card) => {
+    const current = groups.get(card.type) || { ...card, count: 0 };
+    current.count += 1;
+    groups.set(card.type, current);
+  });
+  return [...groups.values()];
+}
+
+function bluffCardBack() {
+  return `<div class="bluff-card-back" aria-label="بطاقة مقلوبة"><span>قِناع</span><b>؟</b><small>البطاقة مخفية</small></div>`;
+}
+
+function bluffActionTimer(game) {
+  if (!["respond", "pass"].includes(game.phase)) return "";
+  return `<div class="bluff-action-timer"><span>أجب أو مرّر قبل انتهاء الوقت</span><strong id="bluffActionClock">${formatTime(game.actionSecondsRemaining || 0)}</strong></div>`;
+}
+
+function bluffPublicTransit(game, sender, receiver) {
+  if (!["respond", "pass"].includes(game.phase)) return "";
+  const status = game.phase === "pass"
+    ? `${receiver?.name || "اللاعب"} شاهد البطاقة ويختار لمن يمرّرها.`
+    : `${sender?.name || "المرسل"} يدّعي أنها ${game.claim?.name || "بطاقة أخرى"}، و${receiver?.name || "المستلم"} يحكم الآن.`;
+  return `${bluffActionTimer(game)}<div class="bluff-hidden-card">${bluffCardBack()}</div><p>${escapeHtml(status)}</p>`;
+}
+
 function bluffPlayersTemplate(game) {
-  return `<section class="bluff-players"><div class="section-label"><h2>اللاعبون</h2><span>${game.players.filter((player) => !player.eliminated).length} في الجولة</span></div><div class="bluff-player-grid">${game.players.map((player) => {
+  return `<section class="bluff-players"><div class="bluff-table-center"><span>بطاقة الخداع</span><strong>${game.players.filter((player) => !player.eliminated).length}</strong><small>لاعبين مستمرين</small></div><div class="bluff-player-grid">${game.players.map((player) => {
     const speaking = state.activeSpeakers.includes(player.id);
     const current = player.id === game.currentPlayerId || player.id === game.receiverId;
+    const penalties = player.penalties || [];
     return `<article class="bluff-player ${current ? "is-current" : ""} ${player.eliminated ? "is-eliminated" : ""} ${speaking ? "is-speaking" : ""}">
-      ${profileAvatar(player, "avatar")}<div><strong>${escapeHtml(player.name)}</strong><small>${player.eliminated ? `المركز ${player.placement || "—"}` : `${player.handCount} في اليد · ${player.penaltyCount} عقوبات`}</small></div>
-      <span class="bluff-mic">${speaking ? ")))" : state.voiceParticipants.some((voice) => voice.identity === player.id && voice.microphoneOn) ? "•" : "×"}</span>
+      <div class="bluff-player-head">${profileAvatar(player, "avatar")}<div><strong>${escapeHtml(player.name)}</strong><small>${player.eliminated ? `المركز ${player.placement || "—"}` : `${player.handCount} بطاقة في اليد`}</small></div><span class="bluff-mic">${speaking ? ")))" : state.voiceParticipants.some((voice) => voice.identity === player.id && voice.microphoneOn) ? "•" : "×"}</span></div>
+      <div class="bluff-floor-cards"><b>${penalties.length ? `${player.penaltyCount} أمامه` : "لا عقوبات أمامه"}</b>${penalties.map((penalty) => `<span style="--floor-color:${escapeHtml(penalty.color)}"><i></i>${escapeHtml(penalty.name)} <strong>×${penalty.count}</strong></span>`).join("")}</div>
     </article>`;
   }).join("")}</div></section>`;
 }
@@ -1173,7 +1216,8 @@ function bluffLastResult(game) {
   const result = game.lastResult;
   if (!result) return "";
   const loser = bluffPlayer(result.penaltyUserId);
-  return `<div class="bluff-last-result ${result.eliminatedUserId ? "is-elimination" : ""}"><span>${result.claimWasTrue ? "كان الادعاء صحيحاً" : "كان الادعاء كاذباً"}</span><strong>${escapeHtml(result.cardName)} · العقوبة على ${escapeHtml(loser?.name || "اللاعب")}</strong>${result.eliminatedUserId ? "<small>خرج من الجولة، وأعيدت بطاقاته إلى الرزمة.</small>" : ""}</div>`;
+  const type = game.cardTypes.find((item) => item.id === result.cardType) || {};
+  return `<div class="bluff-last-result ${result.eliminatedUserId ? "is-elimination" : ""}"><div class="bluff-result-flip"><div class="bluff-result-flip-inner"><div class="bluff-result-face back">${bluffCardBack()}</div><div class="bluff-result-face front" style="--card-color:${escapeHtml(type.color || "#8f5cff")}"><span>${escapeHtml(type.symbol || "◆")}</span><b>${escapeHtml(result.cardName)}</b></div></div></div><div><span>${result.claimWasTrue ? "كان الادعاء صحيحاً" : "كان الادعاء كاذباً"}</span><strong>${escapeHtml(result.cardName)} · العقوبة على ${escapeHtml(loser?.name || "اللاعب")}</strong>${result.eliminatedUserId ? "<small>خرج من الجولة، وأعيدت بطاقاته إلى الرزمة.</small>" : ""}</div></div>`;
 }
 
 function bluffPenaltySummary(game) {
@@ -1195,16 +1239,17 @@ function bluffTemplate() {
     const winner = bluffPlayer(game.winnerUserId);
     action = `<section class="bluff-action-card result"><small>انتهت الجولة</small><h1>نجا ${escapeHtml(winner?.name || "الفائز")}</h1><p>آخر لاعب بقي من دون إقصاء هو الفائز ببطاقة الخداع.</p>${winner ? profileAvatar(winner, "avatar winner") : ""}<div class="imposter-result-actions">${isHost ? '<button class="button button-primary full" data-action="end-round">إنهاء الغرفة والعودة للرئيسية</button>' : ""}<button class="button button-secondary full" data-action="leave-room">مغادرة الغرفة</button></div></section>`;
   } else if (!me) {
-    action = `<section class="bluff-action-card"><small>مشاهدة فقط</small><h1>سلسلة الادعاء مستمرة</h1><p>ترى مسار اللعب والأعداد، لكن البطاقة الحقيقية تبقى مخفية.</p></section>`;
+    action = `<section class="bluff-action-card"><small>مشاهدة فقط</small><h1>سلسلة الادعاء مستمرة</h1>${bluffPublicTransit(game, sender, receiver) || "<p>ترى مسار اللعب والأعداد، لكن البطاقة الحقيقية تبقى مخفية.</p>"}</section>`;
   } else if (me.eliminated) {
-    action = `<section class="bluff-action-card"><small>خرجت من الجولة</small><h1>تابع الخداع حتى النهاية</h1><p>بطاقاتك عادت إلى الرزمة، ويمكنك الاستماع والكتابة في محادثة الخارجين.</p></section>`;
+    action = `<section class="bluff-action-card"><small>خرجت من الجولة</small><h1>تابع الخداع حتى النهاية</h1>${bluffPublicTransit(game, sender, receiver) || "<p>بطاقاتك عادت إلى الرزمة، ويمكنك الاستماع والكتابة في محادثة الخارجين.</p>"}</section>`;
   } else if (game.phase === "select") {
     if (game.currentPlayerId !== me.id) {
       action = `<section class="bluff-action-card"><small>بداية سلسلة جديدة</small><h1>الدور عند ${escapeHtml(current?.name || "لاعب آخر")}</h1><p>يختار بطاقة من يده، ثم يرسلها مقلوبة مع ادعاء.</p></section>`;
     } else {
       const ready = state.bluffSelectedCard && state.bluffSelectedTarget && state.bluffSelectedClaim;
-      action = `<section class="bluff-action-card"><small>دورك الآن</small><h1>مرّر بطاقة وادّعِ نوعها</h1><p>اختر بطاقة، ثم لاعباً واسم النوع الذي ستقوله. يمكنك قول الحقيقة أو الكذب.</p>
-        <div class="section-label"><h2>1 · اختر بطاقة</h2><span>${me.hand.length} في يدك</span></div><div class="bluff-hand">${me.hand.map((card) => bluffCardTemplate(card, true)).join("")}</div>
+      const handGroups = bluffHandGroups(me.hand);
+      action = `<section class="bluff-action-card"><small>دورك الآن</small><h1>مرّر بطاقة وادّعِ نوعها</h1><p>اختر نوعاً من يدك، ثم لاعباً واسم النوع الذي ستقوله. سترسل بطاقة واحدة من المجموعة، ويمكنك قول الحقيقة أو الكذب.</p>
+        <div class="section-label"><h2>1 · اختر نوع البطاقة</h2><span>${me.hand.length} بطاقة · ${handGroups.length} أنواع</span></div><div class="bluff-hand">${handGroups.map((card) => bluffCardTemplate(card, true)).join("")}</div>
         <div class="section-label"><h2>2 · اختر المستلم</h2></div>${bluffTargetChoices(me.selectTargets)}
         <div class="section-label"><h2>3 · اختر الادعاء</h2></div>${bluffClaimChoices(game)}
         <button class="button button-primary button-large full" data-bluff-action="play" ${ready ? "" : "disabled"}>مرّر البطاقة مقلوبة</button>
@@ -1213,19 +1258,19 @@ function bluffTemplate() {
   } else if (game.phase === "respond") {
     const claimName = game.claim?.name || "نوع مجهول";
     if (game.receiverId !== me.id) {
-      action = `<section class="bluff-action-card"><small>${escapeHtml(sender?.name || "لاعب")} يدّعي</small><h1>هذه البطاقة: ${escapeHtml(claimName)}</h1><p>${escapeHtml(receiver?.name || "المستلم")} يقرر الآن: يجيب أو يشاهد ويمرّر.</p></section>`;
+      action = `<section class="bluff-action-card">${bluffActionTimer(game)}<small>${escapeHtml(sender?.name || "لاعب")} يدّعي</small><h1>هذه البطاقة: ${escapeHtml(claimName)}</h1><div class="bluff-hidden-card">${bluffCardBack()}</div><p>${escapeHtml(receiver?.name || "المستلم")} يقرر الآن: يجيب أو يشاهد ويمرّر.</p></section>`;
     } else {
-      action = `<section class="bluff-action-card"><small>${escapeHtml(sender?.name || "المرسل")} يقول</small><h1>«هذه البطاقة ${escapeHtml(claimName)}»</h1><p>احكم من دون كشف البطاقة، أو شاهدها سراً ومرّرها إذا بقي لاعب لم يرها.</p>
+      action = `<section class="bluff-action-card">${bluffActionTimer(game)}<small>${escapeHtml(sender?.name || "المرسل")} يقول</small><h1>«هذه البطاقة ${escapeHtml(claimName)}»</h1><div class="bluff-hidden-card">${bluffCardBack()}</div><p>احكم من دون كشف البطاقة، أو شاهدها سراً ومرّرها إذا بقي لاعب لم يرها.</p>
         <div class="bluff-answer-grid"><button class="button button-primary" data-bluff-action="answer-true">نعم، هي ${escapeHtml(claimName)}</button><button class="button button-danger" data-bluff-action="answer-false">لا، إنه يكذب</button></div>
         ${me.canPeek ? '<button class="button button-secondary full" data-bluff-action="peek">شاهد البطاقة ومرّرها</button>' : '<div class="turn-wait">أنت آخر من لم يرها، لذلك يجب أن تحكم الآن.</div>'}
       </section>`;
     }
   } else if (game.phase === "pass") {
     if (game.receiverId !== me.id) {
-      action = `<section class="bluff-action-card"><small>كشف سري</small><h1>${escapeHtml(receiver?.name || "اللاعب")} شاهد البطاقة</h1><p>سيختار لاعباً جديداً وادعاءً جديداً، من دون كشف الحقيقة.</p></section>`;
+      action = `<section class="bluff-action-card">${bluffActionTimer(game)}<small>كشف سري</small><h1>${escapeHtml(receiver?.name || "اللاعب")} شاهد البطاقة</h1><div class="bluff-hidden-card">${bluffCardBack()}</div><p>سيختار لاعباً جديداً وادعاءً جديداً، من دون كشف الحقيقة.</p></section>`;
     } else {
       const ready = state.bluffSelectedTarget && state.bluffSelectedClaim;
-      action = `<section class="bluff-action-card"><small>رأيت الحقيقة</small><h1>البطاقة هي ${escapeHtml(me.activeCard?.name || "—")}</h1><p>اختر لاعباً لم يرها بعد، وقل له أي نوع من الأنواع الثمانية.</p>
+      action = `<section class="bluff-action-card">${bluffActionTimer(game)}<small>رأيت الحقيقة</small><h1>البطاقة هي ${escapeHtml(me.activeCard?.name || "—")}</h1><p>اختر لاعباً لم يرها بعد، وقل له أي نوع من الأنواع الثمانية.</p>
         ${me.activeCard ? `<div class="bluff-revealed-card">${bluffCardTemplate(me.activeCard)}</div>` : ""}
         <div class="section-label"><h2>اختر المستلم الجديد</h2></div>${bluffTargetChoices(me.passTargets)}
         <div class="section-label"><h2>اختر الادعاء الجديد</h2></div>${bluffClaimChoices(game)}
@@ -1234,7 +1279,7 @@ function bluffTemplate() {
     }
   }
 
-  return `<div class="bluff-stage">${bluffLastResult(game)}${action}${bluffPenaltySummary(game)}${bluffPlayersTemplate(game)}${imposterVoiceChat()}</div>`;
+  return `<div class="bluff-stage">${bluffLastResult(game)}${bluffPlayersTemplate(game)}${action}${bluffPenaltySummary(game)}${imposterVoiceChat()}</div>`;
 }
 
 function renderBluffGame() {
@@ -1244,8 +1289,10 @@ function renderBluffGame() {
   $("#roundLabel").textContent = `بطاقة الخداع · الجولة ${game?.round || 1}`;
   $("#phaseLabel").textContent = labels[game?.phase] || "جارٍ التحضير";
   $("#phaseIcon").innerHTML = icon(game?.phase === "respond" ? "eye" : "chat");
-  $("#mainTimer").hidden = true;
-  $("#phaseProgress").style.width = "0%";
+  const timed = ["respond", "pass"].includes(game?.phase);
+  $("#mainTimer").hidden = !timed;
+  $("#timerValue").textContent = formatTime(game?.actionSecondsRemaining || 0);
+  $("#phaseProgress").style.width = timed ? `${Math.max(0, Math.min(100, ((game?.actionSecondsRemaining || 0) / 59) * 100))}%` : "0%";
   $$('[data-game-tab]').forEach((button) => { button.hidden = button.dataset.gameTab !== "arena"; button.classList.toggle("is-active", button.dataset.gameTab === "arena"); });
   state.currentTab = "arena";
   gameContent.innerHTML = bluffTemplate();
