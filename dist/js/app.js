@@ -6,7 +6,7 @@ import {
   resetForNight,
   startDay,
   startVote,
-} from "./state.js?v=31";
+} from "./state.js?v=32";
 import { roomChat } from "./services/room-chat.js?v=20";
 import { liveKitVoice } from "./services/livekit-voice.js?v=21";
 import { gameAudio } from "./services/game-audio.js?v=23";
@@ -32,6 +32,7 @@ const chatDrafts = { public: "", mafia: "", dead: "" };
 const gameDefaults = {
   mafia: { gameType: "mafia", slug: "afrad-alzil", name: "أفراد الظل", eyebrow: "لعبة الأدوار والاستنتاج", shortDescription: "اكشف أفراد الظل عبر النقاش والأدوار السرية قبل أن يسيطروا على الجولة." },
   imposter: { gameType: "imposter", slug: "aldakhil", name: "الدخيل", eyebrow: "كلمة واحدة وشكوك كثيرة", shortDescription: "يعرف الجميع الكلمة إلا الدخيل. اسألوا بعضكم واكشفوه قبل أن يخمّن السر." },
+  bluff: { gameType: "bluff", slug: "bluff-card", name: "بطاقة الخداع", eyebrow: "تُصدّق الادعاء… أم تكشف الكذبة؟", shortDescription: "مرّر البطاقة مقلوبة وادّعِ ما تشاء. اكشف كذب خصومك، وتجنّب تراكم البطاقات أمامك." },
 };
 
 const icon = (name) => {
@@ -111,11 +112,15 @@ function activeRoomCode() {
 
 function activeGameType() {
   const roomType = state.rooms.find((room) => room.id === state.activeRoomId)?.gameType;
-  return roomType || state.imposterGame?.gameType || state.selectedGameType || "mafia";
+  return roomType || state.imposterGame?.gameType || state.bluffGame?.gameType || state.selectedGameType || "mafia";
 }
 
 function isImposterRoom() {
   return activeGameType() === "imposter";
+}
+
+function isBluffRoom() {
+  return activeGameType() === "bluff";
 }
 
 function normalizeRoomCode(value) {
@@ -324,7 +329,8 @@ function micStatus() {
 
 function voiceParticipantProfile(participant) {
   const player = state.players.find((item) => (item.rawId || item.id) === participant.identity)
-    || state.imposterGame?.players?.find((item) => item.id === participant.identity);
+    || state.imposterGame?.players?.find((item) => item.id === participant.identity)
+    || state.bluffGame?.players?.find((item) => item.id === participant.identity);
   if (player) return player;
   return {
     id: participant.identity,
@@ -743,8 +749,10 @@ function renderRoomDirectory() {
 function renderGameLanding() {
   const page = gamePage();
   const imposter = state.selectedGameType === "imposter";
+  const bluff = state.selectedGameType === "bluff";
   $("#gameLandingHero").classList.toggle("imposter", imposter);
-  $("#gameLandingSymbol").textContent = imposter ? "؟" : "♛";
+  $("#gameLandingHero").classList.toggle("bluff", bluff);
+  $("#gameLandingSymbol").textContent = imposter ? "؟" : bluff ? "▰" : "♛";
   $("#gameLandingEyebrow").textContent = page.eyebrow;
   $("#gameLandingTitle").textContent = page.name;
   $("#gameLandingDescription").textContent = page.shortDescription;
@@ -752,6 +760,10 @@ function renderGameLanding() {
     ["الكلمة", "يراها أهل الكلمة فقط، بينما يحاول الدخيل اكتشافها."],
     ["الأسئلة", "دور عشوائي بلا مؤقّت عبر الصوت أو الدردشة."],
     ["التصويت", "30 ثانية بسرية كاملة، ثم تظهر النتيجة الإجمالية."],
+  ] : bluff ? [
+    ["ادّعِ", "مرّر بطاقة مقلوبة وقل الحقيقة أو غيّر نوعها كما تشاء."],
+    ["احكم أو مرّر", "اكشف صدق الادعاء، أو شاهد البطاقة ومرّرها للاعب جديد."],
+    ["تجنّب العقوبات", "تُقصى عند جمع أربع بطاقات من نوع واحد أو الأنواع الثمانية."],
   ] : [
     ["الليل", "تتحرك الأدوار سراً ويتخذ كل دور قراره."],
     ["النقاش", "صوت ودردشة وطابور منظم للكلام."],
@@ -782,6 +794,20 @@ async function loadImposterState() {
   return data;
 }
 
+async function loadBluffState() {
+  const data = await apiRequest(`/api/rooms/${encodeURIComponent(activeRoomCode())}/bluff`);
+  const previousVersion = state.bluffGame?.version;
+  state.bluffGame = data;
+  state.selectedGameType = "bluff";
+  gameAudio.stop();
+  if (previousVersion !== data.version) {
+    state.bluffSelectedCard = null;
+    state.bluffSelectedTarget = null;
+    state.bluffSelectedClaim = null;
+  }
+  return data;
+}
+
 function startLobbyPolling() {
   stopLobbyPolling();
   const poll = async () => {
@@ -790,6 +816,7 @@ function startLobbyPolling() {
       await loadRoom(activeRoomCode());
       if (state.route === "game") {
         if (isImposterRoom()) await loadImposterState();
+        if (isBluffRoom()) await loadBluffState();
         renderGame();
         return;
       }
@@ -802,8 +829,9 @@ function startLobbyPolling() {
       }
       if (state.account && !state.spectator) {
         const mine = await apiRequest(`/api/rooms/${encodeURIComponent(activeRoomCode())}/me`);
-        if (mine.status === "playing" && mine.gameType === "imposter") {
-          await loadImposterState();
+        if (mine.status === "playing" && ["imposter", "bluff"].includes(mine.gameType)) {
+          if (mine.gameType === "imposter") await loadImposterState();
+          else await loadBluffState();
           navigate("game");
         } else if (mine.status === "playing" && mine.role && !$("#roleDialog").open) prepareRoleReveal(mine.role, mine.partners || []);
       }
@@ -861,6 +889,9 @@ function navigate(route, { fromHistory = false, replace = false } = {}) {
     if (isImposterRoom()) {
       gameAudio.stop();
       loadImposterState().then(renderGame).catch((error) => showToast(error.message));
+    } else if (isBluffRoom()) {
+      gameAudio.stop();
+      loadBluffState().then(renderGame).catch((error) => showToast(error.message));
     } else void beginNightNarration();
   }
 }
@@ -868,6 +899,7 @@ function navigate(route, { fromHistory = false, replace = false } = {}) {
 function renderLobby() {
   const activeRoom = state.rooms.find((room) => room.id === state.activeRoomId);
   const imposter = activeRoom?.gameType === "imposter";
+  const bluff = activeRoom?.gameType === "bluff";
   const isHost = Boolean(state.account && activeRoom?.hostUserId === state.account.id);
   const hasTwoRings = state.players.length > 10;
   const firstRingCount = hasTwoRings ? Math.ceil(state.players.length / 2) : state.players.length;
@@ -884,18 +916,19 @@ function renderLobby() {
     </div>`;
   }).join("");
   $("#playerCount").textContent = state.players.length;
-  $(".player-total span").textContent = `/ ${activeRoom?.capacity || (imposter ? 18 : 20)}`;
+  $(".player-total span").textContent = `/ ${activeRoom?.capacity || (imposter ? 18 : bluff ? 5 : 20)}`;
   $("#tablePlayerCount").textContent = state.players.length;
-  $("#lobbyRoomName").textContent = activeRoom?.name || (imposter ? "مجلس الدخيل" : "مجلس قِناع");
-  $("#lobbyRoomKicker").textContent = imposter ? "غرفة الدخيل" : "غرفة أفراد الظل";
-  $("#settingsTitle").textContent = imposter ? "قواعد الدخيل" : "إعدادات الجولة";
-  $("#settingsSubtitle").textContent = imposter ? "تتكيّف تلقائياً مع عدد اللاعبين" : "توزيع ذكي حسب العدد";
-  $$('[data-mafia-setting]').forEach((row) => { row.hidden = imposter; });
+  $("#lobbyRoomName").textContent = activeRoom?.name || (imposter ? "مجلس الدخيل" : bluff ? "طاولة بطاقة الخداع" : "مجلس قِناع");
+  $("#lobbyRoomKicker").textContent = imposter ? "غرفة الدخيل" : bluff ? "غرفة بطاقة الخداع" : "غرفة أفراد الظل";
+  $("#settingsTitle").textContent = imposter ? "قواعد الدخيل" : bluff ? "قواعد بطاقة الخداع" : "إعدادات الجولة";
+  $("#settingsSubtitle").textContent = imposter || bluff ? "تتكيّف تلقائياً مع عدد اللاعبين" : "توزيع ذكي حسب العدد";
+  $$('[data-mafia-setting]').forEach((row) => { row.hidden = imposter || bluff; });
   $$('[data-imposter-setting]').forEach((row) => { row.hidden = !imposter; });
-  const minimum = imposter ? 4 : 5;
+  $$('[data-bluff-setting]').forEach((row) => { row.hidden = !bluff; });
+  const minimum = imposter ? 4 : bluff ? 3 : 5;
   $("#minimumHint").textContent = state.spectator ? "الجولة لم تبدأ بعد؛ ستنتقل إلى المشاهدة عند بدئها" : !isHost ? "في انتظار أن يبدأ المضيف الجولة" : state.players.length >= minimum ? `كل شيء جاهز · ${state.players.length} لاعبين` : `سيضيف قِناع ${minimum - state.players.length} روبوتات تلقائياً عند البدء`;
   $("#startGameButton").disabled = !isHost || state.spectator;
-  $("#startGameButton span").textContent = imposter ? "بدء لعبة الدخيل" : "بدء الجولة";
+  $("#startGameButton span").textContent = imposter ? "بدء لعبة الدخيل" : bluff ? "بدء بطاقة الخداع" : "بدء الجولة";
   $("#leaveLobbyButton").textContent = state.spectator ? "مغادرة المشاهدة" : "مغادرة الغرفة";
   $(".host-note").hidden = !isHost || state.spectator;
   $("#cupidToggle").checked = state.options.cupid;
@@ -929,6 +962,7 @@ function startTicker() {
   if (gameTicker) return;
   gameTicker = window.setInterval(() => {
     if (state.route !== "game") return;
+    if (isBluffRoom()) return;
     if (isImposterRoom()) {
       if (state.imposterGame?.phase === "vote" && Number.isFinite(state.imposterGame.voteSecondsRemaining)) {
         state.imposterGame.voteSecondsRemaining = Math.max(0, state.imposterGame.voteSecondsRemaining - 1);
@@ -1101,6 +1135,124 @@ function renderImposterGame() {
   syncVoiceRoom();
 }
 
+function bluffPlayer(id) {
+  return state.bluffGame?.players?.find((player) => player.id === id) || null;
+}
+
+function bluffCardTemplate(card, selectable = false) {
+  const selected = state.bluffSelectedCard === card.id;
+  return `<button class="bluff-card ${selectable ? "is-selectable" : ""} ${selected ? "is-selected" : ""}" style="--card-color:${escapeHtml(card.color || "#8f5cff")}" ${selectable ? `data-bluff-card="${escapeHtml(card.id)}"` : "disabled"} type="button">
+    <span class="bluff-card-pattern">${escapeHtml(card.symbol || "◆")}</span>
+    <b>${escapeHtml(card.name || "بطاقة")}</b><small>نسخة ${Number(card.variant || 1)}</small>
+  </button>`;
+}
+
+function bluffPlayersTemplate(game) {
+  return `<section class="bluff-players"><div class="section-label"><h2>اللاعبون</h2><span>${game.players.filter((player) => !player.eliminated).length} في الجولة</span></div><div class="bluff-player-grid">${game.players.map((player) => {
+    const speaking = state.activeSpeakers.includes(player.id);
+    const current = player.id === game.currentPlayerId || player.id === game.receiverId;
+    return `<article class="bluff-player ${current ? "is-current" : ""} ${player.eliminated ? "is-eliminated" : ""} ${speaking ? "is-speaking" : ""}">
+      ${profileAvatar(player, "avatar")}<div><strong>${escapeHtml(player.name)}</strong><small>${player.eliminated ? `المركز ${player.placement || "—"}` : `${player.handCount} في اليد · ${player.penaltyCount} عقوبات`}</small></div>
+      <span class="bluff-mic">${speaking ? ")))" : state.voiceParticipants.some((voice) => voice.identity === player.id && voice.microphoneOn) ? "•" : "×"}</span>
+    </article>`;
+  }).join("")}</div></section>`;
+}
+
+function bluffClaimChoices(game) {
+  return `<div class="bluff-claim-grid">${game.cardTypes.map((type) => `<button class="bluff-claim ${state.bluffSelectedClaim === type.id ? "is-selected" : ""}" style="--claim-color:${escapeHtml(type.color)}" data-bluff-claim="${type.id}" type="button"><span>${escapeHtml(type.symbol)}</span>${escapeHtml(type.name)}</button>`).join("")}</div>`;
+}
+
+function bluffTargetChoices(ids) {
+  return `<div class="bluff-target-grid">${ids.map((id) => {
+    const player = bluffPlayer(id);
+    return `<button class="bluff-target ${state.bluffSelectedTarget === id ? "is-selected" : ""}" data-bluff-target="${id}" type="button">${profileAvatar(player, "avatar")}<strong>${escapeHtml(player?.name || "لاعب")}</strong></button>`;
+  }).join("")}</div>`;
+}
+
+function bluffLastResult(game) {
+  const result = game.lastResult;
+  if (!result) return "";
+  const loser = bluffPlayer(result.penaltyUserId);
+  return `<div class="bluff-last-result ${result.eliminatedUserId ? "is-elimination" : ""}"><span>${result.claimWasTrue ? "كان الادعاء صحيحاً" : "كان الادعاء كاذباً"}</span><strong>${escapeHtml(result.cardName)} · العقوبة على ${escapeHtml(loser?.name || "اللاعب")}</strong>${result.eliminatedUserId ? "<small>خرج من الجولة، وأعيدت بطاقاته إلى الرزمة.</small>" : ""}</div>`;
+}
+
+function bluffPenaltySummary(game) {
+  if (!game.me?.penalties?.length) return "";
+  return `<div class="bluff-penalties"><b>عقوباتك</b>${game.me.penalties.map((penalty) => `<span style="--penalty-color:${escapeHtml(penalty.color)}">${escapeHtml(penalty.name)} × ${penalty.count}</span>`).join("")}</div>`;
+}
+
+function bluffTemplate() {
+  const game = state.bluffGame;
+  if (!game) return '<div class="bluff-stage"><div class="turn-wait">جارٍ تحميل بطاقة الخداع…</div></div>';
+  const me = game.me;
+  const current = bluffPlayer(game.currentPlayerId);
+  const sender = bluffPlayer(game.senderId);
+  const receiver = bluffPlayer(game.receiverId);
+  const isHost = state.rooms.find((room) => room.id === state.activeRoomId)?.hostUserId === state.account?.id;
+  let action = "";
+
+  if (game.phase === "results") {
+    const winner = bluffPlayer(game.winnerUserId);
+    action = `<section class="bluff-action-card result"><small>انتهت الجولة</small><h1>نجا ${escapeHtml(winner?.name || "الفائز")}</h1><p>آخر لاعب بقي من دون إقصاء هو الفائز ببطاقة الخداع.</p>${winner ? profileAvatar(winner, "avatar winner") : ""}<div class="imposter-result-actions">${isHost ? '<button class="button button-primary full" data-action="end-round">إنهاء الغرفة والعودة للرئيسية</button>' : ""}<button class="button button-secondary full" data-action="leave-room">مغادرة الغرفة</button></div></section>`;
+  } else if (!me) {
+    action = `<section class="bluff-action-card"><small>مشاهدة فقط</small><h1>سلسلة الادعاء مستمرة</h1><p>ترى مسار اللعب والأعداد، لكن البطاقة الحقيقية تبقى مخفية.</p></section>`;
+  } else if (me.eliminated) {
+    action = `<section class="bluff-action-card"><small>خرجت من الجولة</small><h1>تابع الخداع حتى النهاية</h1><p>بطاقاتك عادت إلى الرزمة، ويمكنك الاستماع والكتابة في محادثة الخارجين.</p></section>`;
+  } else if (game.phase === "select") {
+    if (game.currentPlayerId !== me.id) {
+      action = `<section class="bluff-action-card"><small>بداية سلسلة جديدة</small><h1>الدور عند ${escapeHtml(current?.name || "لاعب آخر")}</h1><p>يختار بطاقة من يده، ثم يرسلها مقلوبة مع ادعاء.</p></section>`;
+    } else {
+      const ready = state.bluffSelectedCard && state.bluffSelectedTarget && state.bluffSelectedClaim;
+      action = `<section class="bluff-action-card"><small>دورك الآن</small><h1>مرّر بطاقة وادّعِ نوعها</h1><p>اختر بطاقة، ثم لاعباً واسم النوع الذي ستقوله. يمكنك قول الحقيقة أو الكذب.</p>
+        <div class="section-label"><h2>1 · اختر بطاقة</h2><span>${me.hand.length} في يدك</span></div><div class="bluff-hand">${me.hand.map((card) => bluffCardTemplate(card, true)).join("")}</div>
+        <div class="section-label"><h2>2 · اختر المستلم</h2></div>${bluffTargetChoices(me.selectTargets)}
+        <div class="section-label"><h2>3 · اختر الادعاء</h2></div>${bluffClaimChoices(game)}
+        <button class="button button-primary button-large full" data-bluff-action="play" ${ready ? "" : "disabled"}>مرّر البطاقة مقلوبة</button>
+      </section>`;
+    }
+  } else if (game.phase === "respond") {
+    const claimName = game.claim?.name || "نوع مجهول";
+    if (game.receiverId !== me.id) {
+      action = `<section class="bluff-action-card"><small>${escapeHtml(sender?.name || "لاعب")} يدّعي</small><h1>هذه البطاقة: ${escapeHtml(claimName)}</h1><p>${escapeHtml(receiver?.name || "المستلم")} يقرر الآن: يجيب أو يشاهد ويمرّر.</p></section>`;
+    } else {
+      action = `<section class="bluff-action-card"><small>${escapeHtml(sender?.name || "المرسل")} يقول</small><h1>«هذه البطاقة ${escapeHtml(claimName)}»</h1><p>احكم من دون كشف البطاقة، أو شاهدها سراً ومرّرها إذا بقي لاعب لم يرها.</p>
+        <div class="bluff-answer-grid"><button class="button button-primary" data-bluff-action="answer-true">نعم، هي ${escapeHtml(claimName)}</button><button class="button button-danger" data-bluff-action="answer-false">لا، إنه يكذب</button></div>
+        ${me.canPeek ? '<button class="button button-secondary full" data-bluff-action="peek">شاهد البطاقة ومرّرها</button>' : '<div class="turn-wait">أنت آخر من لم يرها، لذلك يجب أن تحكم الآن.</div>'}
+      </section>`;
+    }
+  } else if (game.phase === "pass") {
+    if (game.receiverId !== me.id) {
+      action = `<section class="bluff-action-card"><small>كشف سري</small><h1>${escapeHtml(receiver?.name || "اللاعب")} شاهد البطاقة</h1><p>سيختار لاعباً جديداً وادعاءً جديداً، من دون كشف الحقيقة.</p></section>`;
+    } else {
+      const ready = state.bluffSelectedTarget && state.bluffSelectedClaim;
+      action = `<section class="bluff-action-card"><small>رأيت الحقيقة</small><h1>البطاقة هي ${escapeHtml(me.activeCard?.name || "—")}</h1><p>اختر لاعباً لم يرها بعد، وقل له أي نوع من الأنواع الثمانية.</p>
+        ${me.activeCard ? `<div class="bluff-revealed-card">${bluffCardTemplate(me.activeCard)}</div>` : ""}
+        <div class="section-label"><h2>اختر المستلم الجديد</h2></div>${bluffTargetChoices(me.passTargets)}
+        <div class="section-label"><h2>اختر الادعاء الجديد</h2></div>${bluffClaimChoices(game)}
+        <button class="button button-primary button-large full" data-bluff-action="pass" ${ready ? "" : "disabled"}>مرّر باسم جديد</button>
+      </section>`;
+    }
+  }
+
+  return `<div class="bluff-stage">${bluffLastResult(game)}${action}${bluffPenaltySummary(game)}${bluffPlayersTemplate(game)}${imposterVoiceChat()}</div>`;
+}
+
+function renderBluffGame() {
+  gameAudio.stop();
+  const game = state.bluffGame;
+  const labels = { select: "اختيار البطاقة", respond: "الحكم على الادعاء", pass: "تمرير البطاقة", results: "نتيجة الجولة" };
+  $("#roundLabel").textContent = `بطاقة الخداع · الجولة ${game?.round || 1}`;
+  $("#phaseLabel").textContent = labels[game?.phase] || "جارٍ التحضير";
+  $("#phaseIcon").innerHTML = icon(game?.phase === "respond" ? "eye" : "chat");
+  $("#mainTimer").hidden = true;
+  $("#phaseProgress").style.width = "0%";
+  $$('[data-game-tab]').forEach((button) => { button.hidden = button.dataset.gameTab !== "arena"; button.classList.toggle("is-active", button.dataset.gameTab === "arena"); });
+  state.currentTab = "arena";
+  gameContent.innerHTML = bluffTemplate();
+  refreshPublicChat();
+  syncVoiceRoom();
+}
+
 function chatComposerFocused() {
   return document.activeElement?.matches?.('#gameContent [data-chat-form] input[name="message"]');
 }
@@ -1113,6 +1265,7 @@ function renderGame() {
   gameRenderDeferred = false;
   const activeRoom = state.rooms.find((room) => room.id === state.activeRoomId);
   if (isImposterRoom()) return renderImposterGame();
+  if (isBluffRoom()) return renderBluffGame();
   $("#mainTimer").hidden = false;
   $$('[data-game-tab]').forEach((button) => { button.hidden = false; });
   if (state.currentTab === "chat") state.currentTab = "arena";
@@ -1651,8 +1804,53 @@ async function handleImposterAction(action) {
   }
 }
 
+async function handleBluffAction(action) {
+  const base = `/api/rooms/${encodeURIComponent(activeRoomCode())}/bluff`;
+  try {
+    if (action === "play") {
+      await apiRequest(`${base}/play`, { method: "POST", body: JSON.stringify({ cardId: state.bluffSelectedCard, targetUserId: state.bluffSelectedTarget, claim: state.bluffSelectedClaim }) });
+    } else if (action === "peek") {
+      await apiRequest(`${base}/peek`, { method: "POST", body: "{}" });
+    } else if (action === "pass") {
+      await apiRequest(`${base}/pass`, { method: "POST", body: JSON.stringify({ targetUserId: state.bluffSelectedTarget, claim: state.bluffSelectedClaim }) });
+    } else if (action === "answer-true" || action === "answer-false") {
+      await apiRequest(`${base}/answer`, { method: "POST", body: JSON.stringify({ answer: action === "answer-true" }) });
+    }
+    state.bluffSelectedCard = null;
+    state.bluffSelectedTarget = null;
+    state.bluffSelectedClaim = null;
+    await loadBluffState();
+    renderGame();
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
 function bindEvents() {
   document.addEventListener("click", (event) => {
+    const bluffCard = event.target.closest("[data-bluff-card]");
+    if (bluffCard) {
+      state.bluffSelectedCard = bluffCard.dataset.bluffCard;
+      renderGame();
+      return;
+    }
+    const bluffTarget = event.target.closest("[data-bluff-target]");
+    if (bluffTarget) {
+      state.bluffSelectedTarget = bluffTarget.dataset.bluffTarget;
+      renderGame();
+      return;
+    }
+    const bluffClaim = event.target.closest("[data-bluff-claim]");
+    if (bluffClaim) {
+      state.bluffSelectedClaim = bluffClaim.dataset.bluffClaim;
+      renderGame();
+      return;
+    }
+    const bluffActionButton = event.target.closest("[data-bluff-action]");
+    if (bluffActionButton && !bluffActionButton.disabled) {
+      handleBluffAction(bluffActionButton.dataset.bluffAction);
+      return;
+    }
     const gameChoice = event.target.closest("[data-open-game]");
     if (gameChoice) {
       state.selectedGameType = gameChoice.dataset.openGame;
@@ -1976,6 +2174,14 @@ function bindEvents() {
         await loadImposterState();
         navigate("game");
         if (data.botsAdded) showToast(`أضيف ${data.botsAdded} من الروبوتات لإكمال العدد`);
+      } else if (data.gameType === "bluff") {
+        state.bluffGame = null;
+        state.bluffSelectedCard = null;
+        state.bluffSelectedTarget = null;
+        state.bluffSelectedClaim = null;
+        await loadBluffState();
+        navigate("game");
+        if (data.botsAdded) showToast(`أضيف ${data.botsAdded} من الروبوتات لإكمال العدد`);
       } else {
         prepareRoleReveal(data.role, data.partners || []);
         if (data.botsAdded) showToast(`أضيف ${data.botsAdded} من الروبوتات لإكمال الجولة`);
@@ -2044,10 +2250,11 @@ function bindEvents() {
 
   roomChat.addEventListener("chat-error", (event) => showToast(event.detail));
   roomChat.addEventListener("game-sync", async (event) => {
-    if (event.detail?.gameType !== "imposter" || state.route !== "game" || !activeRoomCode()) return;
+    if (!["imposter", "bluff"].includes(event.detail?.gameType) || state.route !== "game" || !activeRoomCode()) return;
     try {
       await loadRoom(activeRoomCode());
-      await loadImposterState();
+      if (event.detail.gameType === "imposter") await loadImposterState();
+      else await loadBluffState();
       renderGame();
     } catch (error) {
       if (error.data?.ended) navigate("home", { replace: true });

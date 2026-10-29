@@ -15,7 +15,7 @@
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" href="/assets/mark.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="/styles.css?v=31" />
+    <link rel="stylesheet" href="/styles.css?v=32" />
   </head>
   <body>
     <div class="ambient ambient-one"></div>
@@ -58,6 +58,10 @@
               <button class="game-choice-card imposter" data-open-game="imposter" type="button">
                 <span class="game-choice-icon">؟</span><small>4–18 لاعباً</small><h2>الدخيل</h2>
                 <p>يعرف الجميع الكلمة إلا الدخيل. اسأل، راقب، ثم صوّت سراً.</p><b>اعرض اللعبة والغرف <i>←</i></b>
+              </button>
+              <button class="game-choice-card bluff" data-open-game="bluff" type="button">
+                <span class="game-choice-icon">▰</span><small>3–5 لاعبين</small><h2>بطاقة الخداع</h2>
+                <p>مرّر البطاقة مقلوبة وادّعِ ما تشاء. صدّق الكلام أو اكشف الكذبة.</p><b>اعرض اللعبة والغرف <i>←</i></b>
               </button>
             </div>
           </section>
@@ -149,6 +153,9 @@
             <div class="setting-row" data-imposter-setting hidden><div class="setting-icon">؟</div><div><strong>عدد الدخلاء</strong><span>1 من 4–6 · 2 من 7–12 · 3 من 13–18</span></div><b class="ready-tag">تلقائي</b></div>
             <div class="setting-row" data-imposter-setting hidden><div class="setting-icon">↔</div><div><strong>الأسئلة والأجوبة</strong><span>دور عشوائي بلا مؤقّت، عبر الصوت أو الدردشة</span></div><b class="ready-tag">بلا مؤقّت</b></div>
             <div class="setting-row" data-imposter-setting hidden><div class="setting-icon">30</div><div><strong>التصويت السري</strong><span>30 ثانية، وتبقى هوية كل مصوّت مخفية</span></div><b class="ready-tag">30 ثانية</b></div>
+            <div class="setting-row" data-bluff-setting hidden><div class="setting-icon">64</div><div><strong>رزمة البطاقات</strong><span>8 أنواع · 8 بطاقات من كل نوع · توزيع متوازن</span></div><b class="ready-tag">تلقائي</b></div>
+            <div class="setting-row" data-bluff-setting hidden><div class="setting-icon">↝</div><div><strong>التمرير والادعاء</strong><span>شاهد البطاقة سراً، مرّرها وغيّر الادعاء كما تشاء</span></div><b class="ready-tag">بلا مؤقّت ظاهر</b></div>
+            <div class="setting-row" data-bluff-setting hidden><div class="setting-icon">4</div><div><strong>شروط الإقصاء</strong><span>4 من نوع واحد أو بطاقة من الأنواع الثمانية</span></div><b class="ready-tag">حاسم</b></div>
             <div class="setting-row"><div class="setting-icon"><svg viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 018 0v3"/></svg></div><div><strong>غرفة خاصة</strong><span>تختفي من الرئيسية ولا تسمح بالمشاهدة</span></div><label class="switch"><input id="privateRoomToggle" type="checkbox"><span></span></label></div>
           </div>
 
@@ -349,6 +356,6 @@
       <div id="toast" class="toast" role="status" aria-live="polite"></div>
     </div>
 
-    <script type="module" src="/js/app.js?v=31"></script>
+    <script type="module" src="/js/app.js?v=32"></script>
   </body>
 </html>

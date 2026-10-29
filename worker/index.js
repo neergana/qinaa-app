@@ -2,7 +2,18 @@ const MAX_MESSAGE_LENGTH = 180;
 const SESSION_DAYS = 30;
 const AVATAR_PRESETS = new Set(Array.from({ length: 10 }, (_, index) => `mask-${String(index + 1).padStart(2, "0")}`));
 const BOT_NAMES = ["نادر", "سلمى", "مالك", "ليان", "ياسين", "مريم", "آدم", "نور", "سارة", "عمر", "هبة", "زياد", "رنا", "أيمن", "ندى", "أنس", "جنى", "سامي", "لمى", "كريم"];
-const GAME_TYPES = new Set(["mafia", "imposter"]);
+const GAME_TYPES = new Set(["mafia", "imposter", "bluff"]);
+const BLUFF_CARD_TYPES = [
+  { id: "cockroach", name: "الصرصور", symbol: "▰", color: "#b9873f" },
+  { id: "butterfly", name: "الفراشة", symbol: "✦", color: "#f39a3d" },
+  { id: "frog", name: "الضفدع", symbol: "●", color: "#53a864" },
+  { id: "fly", name: "الذبابة", symbol: "✣", color: "#55aee8" },
+  { id: "bedbug", name: "البقّة", symbol: "◆", color: "#d75d66" },
+  { id: "spider", name: "العنكبوت", symbol: "✳", color: "#9562d8" },
+  { id: "worm", name: "الدودة", symbol: "∿", color: "#e476ad" },
+  { id: "snail", name: "الحلزون", symbol: "◉", color: "#49b8ad" },
+];
+const BLUFF_CARD_TYPE_IDS = new Set(BLUFF_CARD_TYPES.map((type) => type.id));
 const IMPOSTER_WORD_CLUSTERS = [
   ["أسد", "نمر", "فهد", "ضبع", "ذئب", "يغور", "وشق", "فهد ثلجي", "ابن آوى", "كوجر"],
   ["برتقال", "ليمون", "يوسفي", "جريب فروت", "بوملي", "ليم", "كمكوات", "أترج", "برتقال دموي", "كلمنتينا"],
@@ -32,6 +43,14 @@ const encoder = new TextEncoder();
 function clean(value, fallback = "", max = 80) {
   const normalized = String(value || "").replace(/[<>\u0000-\u001f]/g, "").trim().slice(0, max);
   return normalized || fallback;
+}
+
+function validBirthDate(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return false;
+  return value < new Date().toISOString().slice(0, 10);
 }
 
 function escapeMarkup(value) {
@@ -248,7 +267,7 @@ function publicGamePage(row) {
 }
 
 async function listGamePages(env) {
-  const result = await env.DB.prepare("SELECT * FROM game_pages ORDER BY CASE game_type WHEN 'mafia' THEN 0 ELSE 1 END").all();
+  const result = await env.DB.prepare("SELECT * FROM game_pages ORDER BY CASE game_type WHEN 'mafia' THEN 0 WHEN 'imposter' THEN 1 ELSE 2 END").all();
   return result.results.map(publicGamePage);
 }
 
@@ -334,7 +353,7 @@ async function completeOAuthProfile(request, env, user) {
   if (!displayName || displayName.length < 2) return json({ error: "اكتب اسماً ظاهراً من حرفين على الأقل." }, 400);
   if (!/^[\p{L}\p{N}._-]{3,24}$/u.test(username)) return json({ error: "اسم المستخدم غير صالح." }, 400);
   if (!/^\S+@\S+\.\S+$/.test(email) || email.endsWith("@qinaa.invalid")) return json({ error: "البريد الإلكتروني غير صالح." }, 400);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(birthDate) || birthDate >= new Date().toISOString().slice(0, 10)) return json({ error: "تاريخ الميلاد غير صالح." }, 400);
+  if (!validBirthDate(birthDate)) return json({ error: "تاريخ الميلاد غير صالح." }, 400);
   if (needsPassword && password.length < 8) return json({ error: "كلمة المرور يجب أن تتكون من 8 أحرف على الأقل." }, 400);
   const passwordData = needsPassword ? await makePassword(password) : { hash: user.password_hash, salt: user.password_salt };
   try {
@@ -364,7 +383,7 @@ async function register(request, env) {
   if (displayName.length < 2) return json({ error: "الاسم الظاهر قصير جداً." }, 400);
   if (!/^[\p{L}\p{N}._-]{3,24}$/u.test(username)) return json({ error: "اسم المستخدم غير صالح." }, 400);
   if (!/^\S+@\S+\.\S+$/.test(email)) return json({ error: "البريد الإلكتروني غير صالح." }, 400);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(birthDate)) return json({ error: "تاريخ الميلاد غير صالح." }, 400);
+  if (!validBirthDate(birthDate)) return json({ error: "تاريخ الميلاد غير صالح." }, 400);
   if (password.length < 8) return json({ error: "كلمة المرور يجب أن تتكون من 8 أحرف على الأقل." }, 400);
   const passwordData = await makePassword(password);
   const id = crypto.randomUUID();
@@ -406,7 +425,7 @@ async function updateProfile(request, env, user) {
   const newPassword = String(input.newPassword || "");
   if (displayName.length < 2) return json({ error: "الاسم الظاهر قصير جداً." }, 400);
   if (!/^[\p{L}\p{N}._-]{3,24}$/u.test(username)) return json({ error: "اسم المستخدم غير صالح." }, 400);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(birthDate) || birthDate >= new Date().toISOString().slice(0, 10)) return json({ error: "تاريخ الميلاد غير صالح." }, 400);
+  if (!validBirthDate(birthDate)) return json({ error: "تاريخ الميلاد غير صالح." }, 400);
   let passwordHash = user.password_hash;
   let passwordSalt = user.password_salt;
   if (newPassword) {
@@ -537,12 +556,12 @@ function roomChatStub(env, roomName) {
   return env.ROOM_CHAT.get(id);
 }
 
-async function notifyGameSync(env, code, phase) {
+async function notifyGameSync(env, code, phase, gameType = "imposter") {
   try {
     await roomChatStub(env, code).fetch(new Request("https://qinaa.internal/internal/game-sync", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ gameType: "imposter", phase }),
+      body: JSON.stringify({ gameType, phase }),
     }));
   } catch (error) {
     console.error(error);
@@ -615,6 +634,26 @@ async function replaceMemberWithBot(env, room, targetUserId) {
       env.DB.prepare("UPDATE imposter_round_state SET question_order = ?, updated_at = ? WHERE round_id = ?").bind(JSON.stringify(order), new Date().toISOString(), member.round_id),
     ]);
   }
+  if (room.game_type === "bluff" && member.round_id) {
+    const stateRow = await env.DB.prepare("SELECT seen_user_ids FROM bluff_round_state WHERE round_id = ? LIMIT 1").bind(member.round_id).first();
+    let seen = [];
+    try { seen = JSON.parse(stateRow?.seen_user_ids || "[]"); } catch (_) { seen = []; }
+    seen = seen.map((userId) => userId === targetUserId ? botId : userId);
+    const bluffPlayer = await env.DB.prepare("SELECT eliminated_at, placement FROM bluff_players WHERE round_id = ? AND user_id = ?").bind(member.round_id, targetUserId).first();
+    await env.DB.batch([
+      env.DB.prepare("INSERT OR REPLACE INTO bluff_players (round_id, user_id, eliminated_at, placement) VALUES (?, ?, ?, ?)").bind(member.round_id, botId, bluffPlayer?.eliminated_at || null, bluffPlayer?.placement || null),
+      env.DB.prepare("UPDATE bluff_cards SET owner_user_id = ? WHERE round_id = ? AND owner_user_id = ?").bind(botId, member.round_id, targetUserId),
+      env.DB.prepare(`
+        UPDATE bluff_round_state SET
+          current_player_id = CASE WHEN current_player_id = ? THEN ? ELSE current_player_id END,
+          sender_user_id = CASE WHEN sender_user_id = ? THEN ? ELSE sender_user_id END,
+          receiver_user_id = CASE WHEN receiver_user_id = ? THEN ? ELSE receiver_user_id END,
+          winner_user_id = CASE WHEN winner_user_id = ? THEN ? ELSE winner_user_id END,
+          seen_user_ids = ?, updated_at = ? WHERE round_id = ?
+      `).bind(targetUserId, botId, targetUserId, botId, targetUserId, botId, targetUserId, botId, JSON.stringify(seen), new Date().toISOString(), member.round_id),
+      env.DB.prepare("DELETE FROM bluff_players WHERE round_id = ? AND user_id = ?").bind(member.round_id, targetUserId),
+    ]);
+  }
   await env.DB.prepare("DELETE FROM room_members WHERE room_id = ? AND user_id = ?").bind(room.id, targetUserId).run();
   return botId;
 }
@@ -667,8 +706,8 @@ async function createRoom(request, env, user) {
   const roomId = crypto.randomUUID();
   const roundId = crypto.randomUUID();
   const now = new Date().toISOString();
-  const capacity = gameType === "imposter" ? 18 : 20;
-  const defaultName = gameType === "imposter" ? `مجلس الدخيل · ${user.display_name}` : `غرفة ${user.display_name}`;
+  const capacity = gameType === "imposter" ? 18 : gameType === "bluff" ? 5 : 20;
+  const defaultName = gameType === "imposter" ? `مجلس الدخيل · ${user.display_name}` : gameType === "bluff" ? `طاولة بطاقة الخداع · ${user.display_name}` : `غرفة ${user.display_name}`;
   await env.DB.batch([
     env.DB.prepare("INSERT INTO rooms (id, code, name, host_user_id, is_private, capacity, game_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").bind(roomId, code, clean(input.name, defaultName, 60), user.id, input.private ? 1 : 0, capacity, gameType, now),
     env.DB.prepare("INSERT INTO rounds (id, room_id, number, status, created_at) VALUES (?, ?, 1, 'active', ?)").bind(roundId, roomId, now),
@@ -1019,6 +1058,359 @@ async function imposterSubmitWord(request, env, code, user) {
   return json({ confirmed: true, finished: context.phase === "results" });
 }
 
+function bluffType(typeId) {
+  return BLUFF_CARD_TYPES.find((type) => type.id === typeId) || null;
+}
+
+function bluffDeadline(seconds = 60) {
+  return new Date(Date.now() + seconds * 1000).toISOString();
+}
+
+function jsonArray(value) {
+  try {
+    const parsed = JSON.parse(value || "[]");
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+async function activeBluffContext(env, code) {
+  return env.DB.prepare(`
+    SELECT r.id AS room_id, r.code, r.host_user_id, r.status AS room_status, r.is_private, r.ended_at,
+      rd.id AS round_id, rd.number, s.phase, s.current_player_id, s.active_card_id,
+      s.sender_user_id, s.receiver_user_id, s.claimed_type, s.seen_user_ids,
+      s.action_deadline, s.last_result_json, s.winner_user_id, s.version
+    FROM rooms r JOIN rounds rd ON rd.room_id = r.id
+    LEFT JOIN bluff_round_state s ON s.round_id = rd.id
+    WHERE r.code = ? AND r.game_type = 'bluff' AND rd.status = 'active'
+    ORDER BY rd.number DESC LIMIT 1
+  `).bind(code).first();
+}
+
+async function activeBluffPlayers(env, roundId) {
+  const rows = await env.DB.prepare(`
+    SELECT p.user_id FROM bluff_players p JOIN room_members m ON m.round_id = p.round_id AND m.user_id = p.user_id
+    WHERE p.round_id = ? AND p.eliminated_at IS NULL ORDER BY m.joined_at
+  `).bind(roundId).all();
+  return rows.results.map((row) => row.user_id);
+}
+
+async function maybeRefillBluffHands(env, roundId) {
+  const active = await activeBluffPlayers(env, roundId);
+  if (!active.length) return { refilled: false, count: 0 };
+  const hands = await env.DB.prepare(`
+    SELECT COUNT(*) AS total FROM bluff_cards WHERE round_id = ? AND zone = 'hand'
+      AND owner_user_id IN (SELECT user_id FROM bluff_players WHERE round_id = ? AND eliminated_at IS NULL)
+  `).bind(roundId, roundId).first();
+  if (Number(hands?.total || 0) > 0) return { refilled: false, count: 0 };
+
+  const recycleRows = await env.DB.prepare("SELECT id FROM bluff_cards WHERE round_id = ? AND zone = 'recycle'").bind(roundId).all();
+  const recycleIds = shuffled(recycleRows.results.map((row) => row.id));
+  const ideal = active.length * 4;
+  const minimum = active.length * 3;
+  const useCount = recycleIds.length >= ideal ? ideal : recycleIds.length >= minimum ? recycleIds.length : minimum;
+  const selectedIds = recycleIds.slice(0, Math.min(useCount, recycleIds.length));
+  const now = new Date().toISOString();
+  const generated = [];
+  for (let index = selectedIds.length; index < useCount; index += 1) {
+    generated.push({
+      id: crypto.randomUUID(),
+      type: BLUFF_CARD_TYPES[index % BLUFF_CARD_TYPES.length].id,
+      variant: (index % 8) + 1,
+    });
+  }
+  const dealt = shuffled([...selectedIds.map((id) => ({ id, existing: true })), ...generated]);
+  const recipients = shuffled(active);
+  await env.DB.batch([
+    ...dealt.map((card, index) => card.existing
+      ? env.DB.prepare("UPDATE bluff_cards SET zone = 'hand', owner_user_id = ? WHERE id = ? AND round_id = ?").bind(recipients[index % recipients.length], card.id, roundId)
+      : env.DB.prepare("INSERT INTO bluff_cards (id, round_id, animal_type, variant, zone, owner_user_id, created_at) VALUES (?, ?, ?, ?, 'hand', ?, ?)")
+        .bind(card.id, roundId, card.type, card.variant, recipients[index % recipients.length], now)),
+  ]);
+  return { refilled: true, count: dealt.length };
+}
+
+async function nextBluffStarter(env, roundId, preferredUserId = null) {
+  await maybeRefillBluffHands(env, roundId);
+  const rows = await env.DB.prepare(`
+    SELECT p.user_id, COUNT(c.id) AS cards FROM bluff_players p
+    LEFT JOIN bluff_cards c ON c.round_id = p.round_id AND c.owner_user_id = p.user_id AND c.zone = 'hand'
+    WHERE p.round_id = ? AND p.eliminated_at IS NULL GROUP BY p.user_id HAVING COUNT(c.id) > 0
+  `).bind(roundId).all();
+  const available = rows.results.map((row) => row.user_id);
+  if (preferredUserId && available.includes(preferredUserId)) return preferredUserId;
+  return shuffled(available)[0] || null;
+}
+
+async function startBluffRound(env, room, round, user) {
+  const botsAdded = await fillRoomWithBots(env, room.id, round?.id, 3);
+  const members = await env.DB.prepare("SELECT user_id FROM room_members WHERE room_id = ? ORDER BY joined_at").bind(room.id).all();
+  const playerIds = members.results.map((member) => member.user_id);
+  if (playerIds.length < 3) return json({ error: "تحتاج بطاقة الخداع إلى ثلاثة لاعبين على الأقل." }, 409);
+  if (playerIds.length > 5) return json({ error: "الحد الأقصى لبطاقة الخداع هو خمسة لاعبين." }, 409);
+  const recipients = shuffled(playerIds);
+  const cards = shuffled(BLUFF_CARD_TYPES.flatMap((type) => Array.from({ length: 8 }, (_, index) => ({
+    id: crypto.randomUUID(), type: type.id, variant: index + 1,
+  }))));
+  const now = new Date().toISOString();
+  const firstPlayer = shuffled(playerIds)[0];
+  await env.DB.batch([
+    env.DB.prepare(`
+      INSERT INTO bluff_round_state
+        (round_id, phase, current_player_id, seen_user_ids, action_deadline, created_at, updated_at)
+      VALUES (?, 'select', ?, '[]', ?, ?, ?)
+    `).bind(round.id, firstPlayer, bluffDeadline(), now, now),
+    ...playerIds.map((userId) => env.DB.prepare("INSERT INTO bluff_players (round_id, user_id) VALUES (?, ?)").bind(round.id, userId)),
+    ...cards.map((card, index) => env.DB.prepare(`
+      INSERT INTO bluff_cards (id, round_id, animal_type, variant, zone, owner_user_id, created_at)
+      VALUES (?, ?, ?, ?, 'hand', ?, ?)
+    `).bind(card.id, round.id, card.type, card.variant, recipients[index % recipients.length], now)),
+    ...playerIds.map((userId) => env.DB.prepare("UPDATE room_members SET role = 'لاعب بطاقة الخداع', alive = 1, round_id = ? WHERE room_id = ? AND user_id = ?").bind(round.id, room.id, userId)),
+    env.DB.prepare("UPDATE rooms SET status = 'playing' WHERE id = ?").bind(room.id),
+  ]);
+  return json({ started: true, gameType: "bluff", botsAdded: botsAdded.length });
+}
+
+async function performBluffPlay(env, context, actorId, cardId, targetUserId, claim) {
+  if (context.phase !== "select" || context.current_player_id !== actorId) throw new Error("ليس دور هذا اللاعب لاختيار بطاقة.");
+  if (!BLUFF_CARD_TYPE_IDS.has(claim)) throw new Error("اختر ادعاءً صالحاً.");
+  const [card, target] = await Promise.all([
+    env.DB.prepare("SELECT id FROM bluff_cards WHERE id = ? AND round_id = ? AND owner_user_id = ? AND zone = 'hand'").bind(cardId, context.round_id, actorId).first(),
+    env.DB.prepare("SELECT 1 FROM bluff_players WHERE round_id = ? AND user_id = ? AND eliminated_at IS NULL").bind(context.round_id, targetUserId).first(),
+  ]);
+  if (!card) throw new Error("هذه البطاقة ليست في يدك.");
+  if (!target || targetUserId === actorId) throw new Error("اختر لاعباً آخر ما زال في الجولة.");
+  const now = new Date().toISOString();
+  await env.DB.batch([
+    env.DB.prepare("UPDATE bluff_cards SET zone = 'transit', owner_user_id = NULL WHERE id = ?").bind(cardId),
+    env.DB.prepare(`
+      UPDATE bluff_round_state SET phase = 'respond', active_card_id = ?, sender_user_id = ?, receiver_user_id = ?,
+        claimed_type = ?, seen_user_ids = ?, action_deadline = ?, last_result_json = NULL, version = version + 1, updated_at = ?
+      WHERE round_id = ?
+    `).bind(cardId, actorId, targetUserId, claim, JSON.stringify([actorId]), bluffDeadline(), now, context.round_id),
+  ]);
+}
+
+async function performBluffPeek(env, context, actorId) {
+  if (context.phase !== "respond" || context.receiver_user_id !== actorId) throw new Error("لا يمكنك كشف هذه البطاقة الآن.");
+  const seen = [...new Set([...jsonArray(context.seen_user_ids), actorId])];
+  const active = await activeBluffPlayers(env, context.round_id);
+  if (!active.some((userId) => userId !== actorId && !seen.includes(userId))) throw new Error("أنت آخر من لم ير البطاقة، ويجب أن تحكم على الادعاء.");
+  await env.DB.prepare("UPDATE bluff_round_state SET phase = 'pass', seen_user_ids = ?, action_deadline = ?, version = version + 1, updated_at = ? WHERE round_id = ?")
+    .bind(JSON.stringify(seen), bluffDeadline(), new Date().toISOString(), context.round_id).run();
+}
+
+async function performBluffPass(env, context, actorId, targetUserId, claim) {
+  if (context.phase !== "pass" || context.receiver_user_id !== actorId) throw new Error("لا يمكنك تمرير هذه البطاقة الآن.");
+  if (!BLUFF_CARD_TYPE_IDS.has(claim)) throw new Error("اختر ادعاءً صالحاً.");
+  const seen = [...new Set([...jsonArray(context.seen_user_ids), actorId])];
+  const target = await env.DB.prepare("SELECT 1 FROM bluff_players WHERE round_id = ? AND user_id = ? AND eliminated_at IS NULL").bind(context.round_id, targetUserId).first();
+  if (!target || targetUserId === actorId || seen.includes(targetUserId)) throw new Error("اختر لاعباً لم ير البطاقة بعد.");
+  await env.DB.prepare(`
+    UPDATE bluff_round_state SET phase = 'respond', sender_user_id = ?, receiver_user_id = ?, claimed_type = ?,
+      seen_user_ids = ?, action_deadline = ?, version = version + 1, updated_at = ? WHERE round_id = ?
+  `).bind(actorId, targetUserId, claim, JSON.stringify(seen), bluffDeadline(), new Date().toISOString(), context.round_id).run();
+}
+
+async function performBluffAnswer(env, context, actorId, answer) {
+  if (context.phase !== "respond" || context.receiver_user_id !== actorId) throw new Error("لا يمكنك الحكم على هذه البطاقة الآن.");
+  const card = await env.DB.prepare("SELECT id, animal_type FROM bluff_cards WHERE id = ? AND round_id = ? AND zone = 'transit'").bind(context.active_card_id, context.round_id).first();
+  if (!card) throw new Error("تعذر العثور على البطاقة النشطة.");
+  const claimWasTrue = card.animal_type === context.claimed_type;
+  const correct = Boolean(answer) === claimWasTrue;
+  const penaltyUserId = correct ? context.sender_user_id : actorId;
+  await env.DB.prepare("UPDATE bluff_cards SET zone = 'penalty', owner_user_id = ? WHERE id = ?").bind(penaltyUserId, card.id).run();
+  const penalties = await env.DB.prepare(`
+    SELECT animal_type, COUNT(*) AS total FROM bluff_cards WHERE round_id = ? AND owner_user_id = ? AND zone = 'penalty'
+    GROUP BY animal_type
+  `).bind(context.round_id, penaltyUserId).all();
+  const eliminated = penalties.results.some((row) => Number(row.total) >= 4) || penalties.results.length >= BLUFF_CARD_TYPES.length;
+  const now = new Date().toISOString();
+  let winnerUserId = null;
+  if (eliminated) {
+    const remainingBefore = await activeBluffPlayers(env, context.round_id);
+    await env.DB.batch([
+      env.DB.prepare("UPDATE bluff_players SET eliminated_at = ?, placement = ? WHERE round_id = ? AND user_id = ?").bind(now, remainingBefore.length, context.round_id, penaltyUserId),
+      env.DB.prepare("UPDATE room_members SET alive = 0 WHERE room_id = ? AND user_id = ?").bind(context.room_id, penaltyUserId),
+      env.DB.prepare("UPDATE bluff_cards SET zone = 'recycle', owner_user_id = NULL WHERE round_id = ? AND owner_user_id = ?").bind(context.round_id, penaltyUserId),
+    ]);
+    const remaining = await activeBluffPlayers(env, context.round_id);
+    if (remaining.length === 1) winnerUserId = remaining[0];
+  }
+  const cardMeta = bluffType(card.animal_type);
+  const claimMeta = bluffType(context.claimed_type);
+  const result = {
+    cardType: card.animal_type,
+    cardName: cardMeta?.name || card.animal_type,
+    claimType: context.claimed_type,
+    claimName: claimMeta?.name || context.claimed_type,
+    answer: Boolean(answer),
+    claimWasTrue,
+    correct,
+    penaltyUserId,
+    eliminatedUserId: eliminated ? penaltyUserId : null,
+  };
+  if (winnerUserId) {
+    await env.DB.batch([
+      env.DB.prepare(`
+        UPDATE bluff_round_state SET phase = 'results', current_player_id = ?, active_card_id = NULL,
+          sender_user_id = NULL, receiver_user_id = NULL, claimed_type = NULL, seen_user_ids = '[]', action_deadline = NULL,
+          last_result_json = ?, winner_user_id = ?, version = version + 1, updated_at = ? WHERE round_id = ?
+      `).bind(winnerUserId, JSON.stringify(result), winnerUserId, now, context.round_id),
+      env.DB.prepare("UPDATE bluff_players SET placement = 1 WHERE round_id = ? AND user_id = ?").bind(context.round_id, winnerUserId),
+    ]);
+    return;
+  }
+  const nextPlayer = await nextBluffStarter(env, context.round_id, eliminated ? null : penaltyUserId);
+  await env.DB.prepare(`
+    UPDATE bluff_round_state SET phase = 'select', current_player_id = ?, active_card_id = NULL,
+      sender_user_id = NULL, receiver_user_id = NULL, claimed_type = NULL, seen_user_ids = '[]', action_deadline = ?,
+      last_result_json = ?, version = version + 1, updated_at = ? WHERE round_id = ?
+  `).bind(nextPlayer, bluffDeadline(), JSON.stringify(result), now, context.round_id).run();
+}
+
+async function runBluffAutomaticActions(env, context) {
+  let changed = false;
+  for (let guard = 0; guard < 40; guard += 1) {
+    context = await activeBluffContext(env, context.code);
+    if (!context || context.phase === "results") break;
+    const actorId = context.phase === "select" ? context.current_player_id : context.receiver_user_id;
+    const expired = context.action_deadline && new Date(context.action_deadline).getTime() <= Date.now();
+    if (!isBotId(actorId) && !expired) break;
+    if (context.phase === "select") {
+      const cards = await env.DB.prepare("SELECT id, animal_type FROM bluff_cards WHERE round_id = ? AND owner_user_id = ? AND zone = 'hand'").bind(context.round_id, actorId).all();
+      const active = (await activeBluffPlayers(env, context.round_id)).filter((userId) => userId !== actorId);
+      if (!cards.results.length || !active.length) {
+        const next = await nextBluffStarter(env, context.round_id);
+        await env.DB.prepare("UPDATE bluff_round_state SET current_player_id = ?, action_deadline = ?, updated_at = ? WHERE round_id = ?").bind(next, bluffDeadline(), new Date().toISOString(), context.round_id).run();
+      } else {
+        const card = cards.results[Math.floor(Math.random() * cards.results.length)];
+        const claim = Math.random() < 0.55 ? card.animal_type : BLUFF_CARD_TYPES[Math.floor(Math.random() * BLUFF_CARD_TYPES.length)].id;
+        await performBluffPlay(env, context, actorId, card.id, active[Math.floor(Math.random() * active.length)], claim);
+      }
+      changed = true;
+      continue;
+    }
+    if (context.phase === "pass") {
+      const seen = jsonArray(context.seen_user_ids);
+      const targets = (await activeBluffPlayers(env, context.round_id)).filter((userId) => userId !== actorId && !seen.includes(userId));
+      if (targets.length) {
+        const claim = BLUFF_CARD_TYPES[Math.floor(Math.random() * BLUFF_CARD_TYPES.length)].id;
+        await performBluffPass(env, context, actorId, targets[Math.floor(Math.random() * targets.length)], claim);
+      } else {
+        await env.DB.prepare("UPDATE bluff_round_state SET phase = 'respond', action_deadline = ?, updated_at = ? WHERE round_id = ?").bind(bluffDeadline(), new Date().toISOString(), context.round_id).run();
+      }
+      changed = true;
+      continue;
+    }
+    const seen = jsonArray(context.seen_user_ids);
+    const unseen = (await activeBluffPlayers(env, context.round_id)).filter((userId) => userId !== actorId && !seen.includes(userId));
+    if (unseen.length && Math.random() < 0.35) {
+      await performBluffPeek(env, context, actorId);
+    } else {
+      const card = await env.DB.prepare("SELECT animal_type FROM bluff_cards WHERE id = ?").bind(context.active_card_id).first();
+      const actual = card?.animal_type === context.claimed_type;
+      const answer = Math.random() < 0.55 ? actual : !actual;
+      await performBluffAnswer(env, context, actorId, answer);
+    }
+    changed = true;
+  }
+  if (changed) await notifyGameSync(env, context.code, (await activeBluffContext(env, context.code))?.phase || null, "bluff");
+  return activeBluffContext(env, context.code);
+}
+
+async function bluffState(request, env, code) {
+  let context = await activeBluffContext(env, code);
+  if (!context || context.ended_at || !context.phase) return json({ error: "لم تبدأ جولة بطاقة الخداع بعد." }, 409);
+  context = await runBluffAutomaticActions(env, context);
+  const user = await getUser(request, env);
+  const assignment = user ? await env.DB.prepare("SELECT * FROM bluff_players WHERE round_id = ? AND user_id = ?").bind(context.round_id, user.id).first() : null;
+  if (context.is_private && !assignment) return json({ error: "هذه الغرفة خاصة." }, 403);
+  const players = await env.DB.prepare(`
+    SELECT u.id, u.display_name, u.avatar_type, u.avatar_value, p.eliminated_at, p.placement,
+      CASE WHEN r.host_user_id = u.id THEN 1 ELSE 0 END AS is_host,
+      SUM(CASE WHEN c.zone = 'hand' THEN 1 ELSE 0 END) AS hand_count,
+      SUM(CASE WHEN c.zone = 'penalty' THEN 1 ELSE 0 END) AS penalty_count,
+      COUNT(DISTINCT CASE WHEN c.zone = 'penalty' THEN c.animal_type END) AS penalty_types
+    FROM bluff_players p JOIN users u ON u.id = p.user_id
+    JOIN rounds rd ON rd.id = p.round_id JOIN rooms r ON r.id = rd.room_id
+    LEFT JOIN bluff_cards c ON c.round_id = p.round_id AND c.owner_user_id = p.user_id
+    WHERE p.round_id = ? GROUP BY p.user_id ORDER BY p.eliminated_at IS NOT NULL, u.display_name
+  `).bind(context.round_id).all();
+  const handRows = assignment && !assignment.eliminated_at ? await env.DB.prepare(`
+    SELECT id, animal_type, variant FROM bluff_cards WHERE round_id = ? AND owner_user_id = ? AND zone = 'hand' ORDER BY animal_type, variant
+  `).bind(context.round_id, user.id).all() : { results: [] };
+  const penaltyRows = assignment ? await env.DB.prepare(`
+    SELECT animal_type, COUNT(*) AS total FROM bluff_cards WHERE round_id = ? AND owner_user_id = ? AND zone = 'penalty' GROUP BY animal_type
+  `).bind(context.round_id, user.id).all() : { results: [] };
+  const activeIds = players.results.filter((player) => !player.eliminated_at).map((player) => player.id);
+  const seen = jsonArray(context.seen_user_ids);
+  const knowsCard = assignment && seen.includes(user.id);
+  const activeCard = knowsCard && context.active_card_id ? await env.DB.prepare("SELECT animal_type, variant FROM bluff_cards WHERE id = ?").bind(context.active_card_id).first() : null;
+  const secondsRemaining = context.action_deadline ? Math.max(0, Math.ceil((new Date(context.action_deadline).getTime() - Date.now()) / 1000)) : null;
+  const mapCard = (card) => {
+    const meta = bluffType(card.animal_type);
+    return { id: card.id, type: card.animal_type, name: meta?.name, symbol: meta?.symbol, color: meta?.color, variant: Number(card.variant || 1) };
+  };
+  const payload = {
+    gameType: "bluff",
+    round: Number(context.number || 1),
+    phase: context.phase,
+    version: Number(context.version || 1),
+    currentPlayerId: context.current_player_id,
+    senderId: context.sender_user_id,
+    receiverId: context.receiver_user_id,
+    claim: context.claimed_type ? { type: context.claimed_type, ...bluffType(context.claimed_type) } : null,
+    actionSecondsRemaining: secondsRemaining,
+    cardTypes: BLUFF_CARD_TYPES,
+    players: players.results.map((player) => ({
+      id: player.id, name: player.display_name, avatarType: player.avatar_type, avatarValue: player.avatar_value,
+      host: Boolean(player.is_host), eliminated: Boolean(player.eliminated_at), placement: player.placement,
+      handCount: Number(player.hand_count || 0), penaltyCount: Number(player.penalty_count || 0), penaltyTypes: Number(player.penalty_types || 0), bot: isBotId(player.id),
+    })),
+    me: assignment ? {
+      id: user.id,
+      eliminated: Boolean(assignment.eliminated_at),
+      hand: handRows.results.map(mapCard),
+      penalties: penaltyRows.results.map((row) => ({ type: row.animal_type, name: bluffType(row.animal_type)?.name, color: bluffType(row.animal_type)?.color, count: Number(row.total) })),
+      activeCard: activeCard ? mapCard({ id: context.active_card_id, ...activeCard }) : null,
+      selectTargets: context.phase === "select" && context.current_player_id === user.id ? activeIds.filter((id) => id !== user.id) : [],
+      passTargets: context.phase === "pass" && context.receiver_user_id === user.id ? activeIds.filter((id) => id !== user.id && !seen.includes(id)) : [],
+      canAnswer: context.phase === "respond" && context.receiver_user_id === user.id,
+      canPeek: context.phase === "respond" && context.receiver_user_id === user.id && activeIds.some((id) => id !== user.id && !seen.includes(id)),
+      canPass: context.phase === "pass" && context.receiver_user_id === user.id,
+    } : null,
+    lastResult: context.last_result_json ? JSON.parse(context.last_result_json) : null,
+    winnerUserId: context.winner_user_id,
+  };
+  return json(payload);
+}
+
+async function bluffAction(request, env, code, user, action) {
+  let context = await activeBluffContext(env, code);
+  if (!context || context.ended_at || !context.phase) return json({ error: "لم تبدأ جولة بطاقة الخداع بعد." }, 409);
+  const player = await env.DB.prepare("SELECT eliminated_at FROM bluff_players WHERE round_id = ? AND user_id = ?").bind(context.round_id, user.id).first();
+  if (!player) return json({ error: "المشاهد لا يستطيع تنفيذ حركة." }, 403);
+  if (player.eliminated_at) return json({ error: "خرجت من هذه الجولة ويمكنك متابعتها فقط." }, 409);
+  let input = {};
+  try { input = await request.json(); } catch (_) { /* Some actions need no payload. */ }
+  try {
+    if (action === "play") await performBluffPlay(env, context, user.id, clean(input.cardId, "", 80), clean(input.targetUserId, "", 80), clean(input.claim, "", 30));
+    else if (action === "peek") await performBluffPeek(env, context, user.id);
+    else if (action === "pass") await performBluffPass(env, context, user.id, clean(input.targetUserId, "", 80), clean(input.claim, "", 30));
+    else if (action === "answer" && typeof input.answer === "boolean") await performBluffAnswer(env, context, user.id, input.answer);
+    else return json({ error: "الحركة غير صالحة." }, 400);
+  } catch (error) {
+    return json({ error: error.message || "تعذر تنفيذ الحركة." }, 409);
+  }
+  context = await activeBluffContext(env, code);
+  await runBluffAutomaticActions(env, context);
+  const latest = await activeBluffContext(env, code);
+  await notifyGameSync(env, code, latest?.phase || null, "bluff");
+  return json({ ok: true, phase: latest?.phase || null });
+}
+
 async function startRoom(request, env, code, user) {
   const config = await siteConfig(env);
   if (config.maintenanceMode) return json({ error: config.maintenanceMessage }, 503);
@@ -1030,6 +1422,7 @@ async function startRoom(request, env, code, user) {
   try { input = await request.json(); } catch (_) { /* Optional settings. */ }
   const round = await env.DB.prepare("SELECT id FROM rounds WHERE room_id = ? AND status = 'active' ORDER BY number DESC LIMIT 1").bind(room.id).first();
   if (room.game_type === "imposter") return startImposterRound(env, room, round, user);
+  if (room.game_type === "bluff") return startBluffRound(env, room, round, user);
   const botsAdded = await fillRoomWithBots(env, room.id, round?.id, 5);
   const members = await env.DB.prepare("SELECT user_id FROM room_members WHERE room_id = ? ORDER BY joined_at").bind(room.id).all();
   if (members.results.length < 5) return json({ error: "تعذر تجهيز العدد الأدنى من اللاعبين." }, 409);
@@ -1198,7 +1591,7 @@ async function adminUpdateUser(request, env, context, targetId) {
   const statusReason = accountStatus === "suspended" ? clean(input.statusReason, "قرار إداري", 160) : null;
   if (targetId === context.user.id && accountStatus !== "active") return json({ error: "لا يمكنك إيقاف حسابك الإداري الحالي." }, 400);
   if (displayName.length < 2 || !/^[\p{L}\p{N}._-]{3,24}$/u.test(username) || !/^\S+@\S+\.\S+$/.test(email)) return json({ error: "راجع الاسم واسم المستخدم والبريد الإلكتروني." }, 400);
-  if (birthDate && !/^\d{4}-\d{2}-\d{2}$/.test(birthDate)) return json({ error: "تاريخ الميلاد غير صالح." }, 400);
+  if (birthDate && !validBirthDate(birthDate)) return json({ error: "تاريخ الميلاد غير صالح." }, 400);
   try {
     await env.DB.prepare(`
       UPDATE users SET display_name = ?, username = ?, email = ?, birth_date = ?, account_status = ?, status_reason = ?, updated_at = ? WHERE id = ?
@@ -1503,7 +1896,7 @@ export default {
         if (adminRoomMatch && method === "DELETE") return adminDeleteRoom(env, context, adminRoomMatch[1]);
         if (url.pathname === "/api/admin/settings" && method === "PATCH") return adminUpdateSettings(request, env, context);
         if (url.pathname === "/api/admin/games" && method === "GET") return json({ games: await listGamePages(env) });
-        const adminGameMatch = url.pathname.match(/^\/api\/admin\/games\/(mafia|imposter)$/);
+        const adminGameMatch = url.pathname.match(/^\/api\/admin\/games\/(mafia|imposter|bluff)$/);
         if (adminGameMatch && method === "PATCH") return adminUpdateGamePage(request, env, context, adminGameMatch[1]);
         if (url.pathname === "/api/admin/admins" && method === "GET") return adminListAdmins(env);
         if (url.pathname === "/api/admin/admins" && method === "POST") return adminAddAdmin(request, env, context);
@@ -1586,6 +1979,15 @@ export default {
         if (action === "turn" && method === "POST") return imposterAdvanceTurn(request, env, code, user);
         if (action === "vote" && method === "POST") return imposterSubmitVote(request, env, code, user);
         if (action === "word" && method === "POST") return imposterSubmitWord(request, env, code, user);
+      }
+      const bluffMatch = url.pathname.match(/^\/api\/rooms\/(\d{6})\/bluff(?:\/(play|peek|pass|answer))?$/);
+      if (bluffMatch) {
+        const code = bluffMatch[1].toUpperCase();
+        const action = bluffMatch[2];
+        if (!action && method === "GET") return bluffState(request, env, code);
+        const user = await getUser(request, env);
+        if (!user) return json({ error: "يلزم تسجيل الدخول." }, 401);
+        if (action && method === "POST") return bluffAction(request, env, code, user, action);
       }
       if (url.pathname === "/api/chat/ws") {
         const room = clean(url.searchParams.get("room"), "", 20).toLowerCase();

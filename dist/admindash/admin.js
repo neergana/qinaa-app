@@ -97,7 +97,7 @@ function renderRooms(data) {
     <article class="data-row">
       <div class="data-user"><span class="user-avatar">${room.private ? "♜" : "⌂"}</span><div><strong>${escapeHtml(room.name)}</strong><small dir="ltr">${escapeHtml(room.code)}</small></div></div>
       <div class="data-meta"><strong>${escapeHtml(room.hostName)}</strong><small dir="ltr">${escapeHtml(room.hostEmail)}</small></div>
-      <div class="chips"><span class="chip">${room.gameType === "imposter" ? "الدخيل" : "أفراد الظل"}</span><span class="chip ${room.endedAt ? "" : "active"}">${room.endedAt ? "منتهية" : "نشطة"}</span><span class="chip">${room.members} لاعب</span><span class="chip">${room.messages} رسالة</span></div>
+      <div class="chips"><span class="chip">${room.gameType === "imposter" ? "الدخيل" : room.gameType === "bluff" ? "بطاقة الخداع" : "أفراد الظل"}</span><span class="chip ${room.endedAt ? "" : "active"}">${room.endedAt ? "منتهية" : "نشطة"}</span><span class="chip">${room.members} لاعب</span><span class="chip">${room.messages} رسالة</span></div>
       <div class="row-actions">${room.endedAt ? `<button class="danger" data-delete-room="${room.id}">حذف السجل</button>` : `<button class="danger" data-end-room="${room.id}">إنهاء الغرفة</button>`}</div>
     </article>`).join("") : '<div class="empty-state">لا توجد غرف بعد.</div>';
 }
@@ -107,7 +107,7 @@ async function loadRooms() { renderRooms(await api("/api/admin/rooms")); }
 function renderSeoPages(data) {
   state.games = data.games || [];
   $("#seoPages").innerHTML = state.games.map((game) => `<form class="panel seo-form" data-seo-game="${escapeHtml(game.gameType)}">
-    <div class="panel-title"><div><span>${escapeHtml(game.gameType === "mafia" ? "لعبة أفراد الظل" : "لعبة الدخيل")}</span><h2>${escapeHtml(game.name)}</h2></div><a href="/games/${encodeURIComponent(game.slug)}" target="_blank" rel="noopener">معاينة الصفحة ↗</a></div>
+    <div class="panel-title"><div><span>${escapeHtml(game.gameType === "mafia" ? "لعبة أفراد الظل" : game.gameType === "imposter" ? "لعبة الدخيل" : "لعبة بطاقة الخداع")}</span><h2>${escapeHtml(game.name)}</h2></div><a href="/games/${encodeURIComponent(game.slug)}" target="_blank" rel="noopener">معاينة الصفحة ↗</a></div>
     <div class="seo-grid">
       <label><span>اسم اللعبة</span><input name="name" value="${escapeHtml(game.name)}" required maxlength="60" /></label>
       <label><span>الرابط المختصر Slug</span><input name="slug" value="${escapeHtml(game.slug)}" dir="ltr" required pattern="[a-z0-9-]+" /></label>

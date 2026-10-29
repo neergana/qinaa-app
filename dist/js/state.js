@@ -74,6 +74,10 @@ export const state = {
   imposterRoleRevealed: false,
   imposterVoteSelections: [],
   imposterWordChoice: null,
+  bluffGame: null,
+  bluffSelectedCard: null,
+  bluffSelectedTarget: null,
+  bluffSelectedClaim: null,
 };
 
 export function setPlayerName(name) {
