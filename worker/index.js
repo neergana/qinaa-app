@@ -11,6 +11,22 @@ const IMPOSTER_WORD_CLUSTERS = [
   ["واتساب", "تيليغرام", "سيغنال", "ماسنجر", "ديسكورد", "فايبر", "سكايب", "لاين", "وي تشات", "سلاك"],
   ["حافلة", "قطار", "ترام", "مترو", "سيارة أجرة", "عبّارة", "طائرة", "دراجة", "سفينة", "سيارة"],
 ];
+const BOT_QUESTIONS = [
+  "هل نراه كثيراً في حياتنا اليومية؟",
+  "هل يحتاج إلى مكان خاص لاستعماله؟",
+  "هل يرتبط أكثر بالداخل أم بالخارج؟",
+  "هل يفضّله الناس عادةً أم يتجنبونه؟",
+  "هل حجمه من الصفات المهمة فيه؟",
+  "هل يمكن أن نستعمله أو نراه في أكثر من مكان؟",
+];
+const BOT_ANSWERS = [
+  "غالباً نعم، لكن ذلك يعتمد على الموقف.",
+  "ليس دائماً، وقد يختلف حسب طريقة الاستعمال.",
+  "أراه أقرب إلى الخيار الأول، من دون أن أجزم.",
+  "يمكن أن ينطبق عليه الأمران، لكن أحدهما أشهر.",
+  "هذه صفة مهمة فيه، لكنها ليست الوحيدة.",
+  "نعم إلى حدّ ما، ولا أريد أن أكشف الكلمة أكثر.",
+];
 const encoder = new TextEncoder();
 
 function clean(value, fallback = "", max = 80) {
@@ -29,6 +45,12 @@ function shuffled(values) {
     [copy[index], copy[other]] = [copy[other], copy[index]];
   }
   return copy;
+}
+
+function pickBySeed(values, seed) {
+  let hash = 0;
+  for (const character of String(seed || "")) hash = ((hash << 5) - hash + character.charCodeAt(0)) | 0;
+  return values[Math.abs(hash) % Math.max(1, values.length)];
 }
 
 function imposterCountForPlayers(count) {
@@ -510,6 +532,32 @@ function isBotId(userId) {
   return String(userId || "").startsWith("qinaa-bot-");
 }
 
+function roomChatStub(env, roomName) {
+  const id = env.ROOM_CHAT.idFromName(String(roomName || "").toLowerCase());
+  return env.ROOM_CHAT.get(id);
+}
+
+async function notifyGameSync(env, code, phase) {
+  try {
+    await roomChatStub(env, code).fetch(new Request("https://qinaa.internal/internal/game-sync", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ gameType: "imposter", phase }),
+    }));
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+async function postBotChatMessage(env, context, userId, body) {
+  const response = await roomChatStub(env, context.code).fetch(new Request("https://qinaa.internal/internal/bot-message", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ roomId: context.room_id, roundId: context.round_id, userId, body }),
+  }));
+  if (!response.ok) throw new Error(`Bot chat failed with ${response.status}`);
+}
+
 async function ensureBotUser(env, slot) {
   const number = String(slot).padStart(2, "0");
   const id = `qinaa-bot-${number}`;
@@ -612,8 +660,8 @@ async function createRoom(request, env, user) {
   const gameType = GAME_TYPES.has(input.gameType) ? input.gameType : "mafia";
   let code;
   for (let attempt = 0; attempt < 30; attempt += 1) {
-    const candidate = `QNA-${Math.floor(100 + Math.random() * 900)}`;
-    if (!await env.DB.prepare("SELECT 1 FROM rooms WHERE code = ? AND ended_at IS NULL").bind(candidate).first()) { code = candidate; break; }
+    const candidate = String(Math.floor(100000 + Math.random() * 900000));
+    if (!await env.DB.prepare("SELECT 1 FROM rooms WHERE code = ?").bind(candidate).first()) { code = candidate; break; }
   }
   if (!code) return json({ error: "تعذر إنشاء رمز غرفة الآن." }, 503);
   const roomId = crypto.randomUUID();
@@ -702,7 +750,7 @@ function roleDeck(count, options = {}) {
 
 async function activeImposterContext(env, code) {
   return env.DB.prepare(`
-    SELECT r.id AS room_id, r.code, r.host_user_id, r.status AS room_status, r.ended_at,
+    SELECT r.id AS room_id, r.code, r.host_user_id, r.status AS room_status, r.is_private, r.ended_at,
       rd.id AS round_id, rd.number, s.phase, s.secret_word, s.candidate_words, s.question_order,
       s.current_index, s.turn_stage, s.imposter_count, s.vote_deadline, s.results_json
     FROM rooms r JOIN rounds rd ON rd.room_id = r.id
@@ -713,8 +761,9 @@ async function activeImposterContext(env, code) {
 }
 
 async function startImposterRound(env, room, round, user) {
+  const botsAdded = await fillRoomWithBots(env, room.id, round?.id, 4);
   const members = await env.DB.prepare(`
-    SELECT m.user_id FROM room_members m WHERE m.room_id = ? AND m.user_id NOT LIKE 'qinaa-bot-%' ORDER BY m.joined_at
+    SELECT m.user_id FROM room_members m WHERE m.room_id = ? ORDER BY m.joined_at
   `).bind(room.id).all();
   const playerIds = members.results.map((member) => member.user_id);
   if (playerIds.length < 4) return json({ error: "تحتاج لعبة الدخيل إلى أربعة لاعبين على الأقل." }, 409);
@@ -734,13 +783,13 @@ async function startImposterRound(env, room, round, user) {
       VALUES (?, 'reveal', ?, ?, ?, 0, 'question', ?, ?, ?)
     `).bind(round.id, secretWord, JSON.stringify(candidates), JSON.stringify(questionOrder), imposterCount, now, now),
     ...playerIds.map((userId) => env.DB.prepare(`
-      INSERT INTO imposter_assignments (round_id, user_id, is_imposter) VALUES (?, ?, ?)
-    `).bind(round.id, userId, imposters.has(userId) ? 1 : 0)),
+      INSERT INTO imposter_assignments (round_id, user_id, is_imposter, ready_at) VALUES (?, ?, ?, ?)
+    `).bind(round.id, userId, imposters.has(userId) ? 1 : 0, isBotId(userId) ? now : null)),
     ...playerIds.map((userId) => env.DB.prepare("UPDATE room_members SET role = ?, alive = 1, round_id = ? WHERE room_id = ? AND user_id = ?")
       .bind(imposters.has(userId) ? "الدخيل" : "عارف الكلمة", round.id, room.id, userId)),
     env.DB.prepare("UPDATE rooms SET status = 'playing' WHERE id = ?").bind(room.id),
   ]);
-  return json({ started: true, gameType: "imposter", imposterCount, role: imposters.has(user.id) ? "الدخيل" : "عارف الكلمة" });
+  return json({ started: true, gameType: "imposter", imposterCount, botsAdded: botsAdded.length, role: imposters.has(user.id) ? "الدخيل" : "عارف الكلمة" });
 }
 
 async function runImposterBotActions(env, context) {
@@ -756,9 +805,17 @@ async function runImposterBotActions(env, context) {
   for (let guard = 0; guard < 24 && current.phase === "questions"; guard += 1) {
     const order = JSON.parse(current.question_order || "[]");
     const index = Number(current.current_index || 0);
-    const actorId = current.turn_stage === "question" ? order[index % order.length] : order[(index + 1) % order.length];
+    const askerId = order[index % order.length];
+    const answererId = order[(index + 1) % order.length];
+    const actorId = current.turn_stage === "question" ? askerId : answererId;
     if (!isBotId(actorId)) break;
     const now = new Date().toISOString();
+    const participants = await env.DB.prepare("SELECT id, display_name FROM users WHERE id IN (?, ?)").bind(askerId, answererId).all();
+    const names = Object.fromEntries(participants.results.map((participant) => [participant.id, participant.display_name]));
+    const botBody = current.turn_stage === "question"
+      ? `سؤالي لـ${names[answererId] || "اللاعب"}: ${pickBySeed(BOT_QUESTIONS, `${current.round_id}:${index}:question:${actorId}`)}`
+      : pickBySeed(BOT_ANSWERS, `${current.round_id}:${index}:answer:${actorId}`);
+    try { await postBotChatMessage(env, current, actorId, botBody); } catch (error) { console.error(error); }
     if (current.turn_stage === "question") {
       await env.DB.prepare("UPDATE imposter_round_state SET turn_stage = 'answer', updated_at = ? WHERE round_id = ?").bind(now, current.round_id).run();
     } else if (index + 1 >= order.length) {
@@ -826,6 +883,7 @@ async function maybeFinalizeImposter(env, context) {
   const results = { secretWord: context.secret_word, imposters, accused, voteCounts, wordChoices, winner, tieAtCutoff: accused.length < limit };
   await env.DB.prepare("UPDATE imposter_round_state SET phase = 'results', results_json = ?, updated_at = ? WHERE round_id = ?")
     .bind(JSON.stringify(results), now.toISOString(), context.round_id).run();
+  await notifyGameSync(env, context.code, "results");
   return { ...context, phase: "results", results_json: JSON.stringify(results) };
 }
 
@@ -842,6 +900,7 @@ async function imposterState(request, env, code) {
     WHERE m.room_id = ? ORDER BY m.joined_at
   `).bind(context.room_id).all();
   const assignment = user ? await env.DB.prepare("SELECT * FROM imposter_assignments WHERE round_id = ? AND user_id = ? LIMIT 1").bind(context.round_id, user.id).first() : null;
+  if (context.is_private && !assignment) return json({ error: "هذه الغرفة خاصة." }, 403);
   const ballot = user ? await env.DB.prepare("SELECT selections_json, confirmed_at FROM imposter_ballots WHERE round_id = ? AND voter_user_id = ? LIMIT 1").bind(context.round_id, user.id).first() : null;
   const order = JSON.parse(context.question_order || "[]");
   const askerId = order.length ? order[Number(context.current_index || 0) % order.length] : null;
@@ -887,6 +946,7 @@ async function imposterReady(env, code, user) {
   const counts = await env.DB.prepare("SELECT COUNT(*) AS total, SUM(CASE WHEN ready_at IS NOT NULL THEN 1 ELSE 0 END) AS ready FROM imposter_assignments WHERE round_id = ?").bind(context.round_id).first();
   if (Number(counts.ready || 0) >= Number(counts.total || 0)) {
     await env.DB.prepare("UPDATE imposter_round_state SET phase = 'questions', updated_at = ? WHERE round_id = ?").bind(now, context.round_id).run();
+    await notifyGameSync(env, code, "questions");
   }
   return json({ ready: true, allReady: Number(counts.ready || 0) >= Number(counts.total || 0) });
 }
@@ -904,15 +964,18 @@ async function imposterAdvanceTurn(request, env, code, user) {
   if (context.turn_stage === "question") {
     if (input.action !== "question_done" || user.id !== askerId) return json({ error: "السائل الحالي وحده يؤكد انتهاء سؤاله." }, 403);
     await env.DB.prepare("UPDATE imposter_round_state SET turn_stage = 'answer', updated_at = ? WHERE round_id = ?").bind(now, context.round_id).run();
+    await notifyGameSync(env, code, "questions");
     return json({ advanced: true, turnStage: "answer" });
   }
   if (input.action !== "answer_done" || user.id !== answererId) return json({ error: "المجيب الحالي وحده يؤكد انتهاء جوابه." }, 403);
   if (currentIndex + 1 >= order.length) {
     const deadline = new Date(Date.now() + 30000).toISOString();
     await env.DB.prepare("UPDATE imposter_round_state SET phase = 'vote', vote_deadline = ?, updated_at = ? WHERE round_id = ?").bind(deadline, now, context.round_id).run();
+    await notifyGameSync(env, code, "vote");
     return json({ advanced: true, phase: "vote", voteDeadline: deadline });
   }
   await env.DB.prepare("UPDATE imposter_round_state SET current_index = ?, turn_stage = 'question', updated_at = ? WHERE round_id = ?").bind(currentIndex + 1, now, context.round_id).run();
+  await notifyGameSync(env, code, "questions");
   return json({ advanced: true, currentIndex: currentIndex + 1, turnStage: "question" });
 }
 
@@ -1040,7 +1103,7 @@ async function endRoom(env, code, user) {
   const statements = [env.DB.prepare("UPDATE rooms SET status = 'ended', ended_at = ? WHERE id = ?").bind(now, room.id)];
   if (round) statements.push(env.DB.prepare("DELETE FROM messages WHERE round_id = ?").bind(round.id), env.DB.prepare("UPDATE rounds SET status = 'ended', ended_at = ? WHERE id = ?").bind(now, round.id));
   await env.DB.batch(statements);
-  await env.ROOM_CHAT.getByName(code.toLowerCase()).fetch(new Request("https://qinaa.internal/internal/end"));
+  await roomChatStub(env, code).fetch(new Request("https://qinaa.internal/internal/end"));
   return json({ ended: true, messagesDeleted: true });
 }
 
@@ -1201,7 +1264,7 @@ async function adminEndRoom(env, context, roomId) {
       env.DB.prepare("UPDATE rounds SET status = 'ended', ended_at = ? WHERE room_id = ? AND status = 'active'").bind(now, room.id),
       env.DB.prepare("UPDATE rooms SET status = 'ended', ended_at = ? WHERE id = ?").bind(now, room.id),
     ]);
-    await env.ROOM_CHAT.getByName(room.code.toLowerCase()).fetch(new Request("https://qinaa.internal/internal/end"));
+    await roomChatStub(env, room.code).fetch(new Request("https://qinaa.internal/internal/end"));
   }
   await auditAdmin(env, context.user.id, "room.end", "room", room.id, { code: room.code });
   return json({ ok: true });
@@ -1326,15 +1389,45 @@ export class RoomChat {
       await this.ctx.storage.deleteAll();
       return new Response("ok");
     }
+    if (url.pathname === "/internal/game-sync" && request.method === "POST") {
+      let input = {};
+      try { input = await request.json(); } catch (_) { /* Empty sync payload is still valid. */ }
+      const payload = JSON.stringify({ type: "game-sync", gameType: input.gameType || "imposter", phase: input.phase || null });
+      for (const socket of this.ctx.getWebSockets()) {
+        try { socket.send(payload); } catch (_) { /* Ignore stale sockets. */ }
+      }
+      return json({ ok: true });
+    }
+    if (url.pathname === "/internal/bot-message" && request.method === "POST") {
+      let input = {};
+      try { input = await request.json(); } catch (_) { return json({ error: "رسالة الروبوت غير صالحة." }, 400); }
+      const userId = clean(input.userId, "", 80);
+      const body = clean(input.body, "", MAX_MESSAGE_LENGTH);
+      if (!isBotId(userId) || !body) return json({ error: "رسالة الروبوت غير صالحة." }, 400);
+      const membership = await this.env.DB.prepare(`
+        SELECT u.display_name FROM room_members m JOIN users u ON u.id = m.user_id
+        WHERE m.room_id = ? AND m.round_id = ? AND m.user_id = ? LIMIT 1
+      `).bind(input.roomId, input.roundId, userId).first();
+      if (!membership) return json({ error: "الروبوت ليس عضواً في الجولة." }, 403);
+      const message = { id: crypto.randomUUID(), userId, sender: membership.display_name, initial: membership.display_name.charAt(0), body, time: new Date().toISOString(), channel: "public" };
+      await this.env.DB.prepare("INSERT INTO messages (id, room_id, round_id, user_id, channel, body, created_at) VALUES (?, ?, ?, ?, 'public', ?, ?)")
+        .bind(message.id, input.roomId, input.roundId, userId, body, message.time).run();
+      const payload = JSON.stringify({ type: "message", message });
+      for (const socket of this.ctx.getWebSockets()) {
+        try { if ((socket.deserializeAttachment()?.allowedChannels || []).includes("public")) socket.send(payload); } catch (_) { /* Ignore stale sockets. */ }
+      }
+      return json({ ok: true });
+    }
     if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket") return new Response("WebSocket upgrade required", { status: 426 });
     const code = clean(url.searchParams.get("room"), "", 20).toUpperCase();
     const room = await this.env.DB.prepare(`
-      SELECT r.id AS room_id, rd.id AS round_id FROM rooms r JOIN rounds rd ON rd.room_id = r.id
+      SELECT r.id AS room_id, r.is_private, rd.id AS round_id FROM rooms r JOIN rounds rd ON rd.room_id = r.id
       WHERE r.code = ? AND r.ended_at IS NULL AND rd.status = 'active' ORDER BY rd.number DESC LIMIT 1
     `).bind(code).first();
     if (!room) return json({ error: "انتهت الجولة." }, 410);
     const user = await getUser(request, this.env);
     const member = user ? await this.env.DB.prepare("SELECT role, alive FROM room_members WHERE room_id = ? AND user_id = ?").bind(room.room_id, user.id).first() : null;
+    if (room.is_private && !member) return json({ error: "هذه الغرفة خاصة." }, 403);
     const allowedChannels = ["public"];
     if (member?.role === "أفراد الظل") allowedChannels.push("mafia");
     if (member && !member.alive) allowedChannels.push("dead");
@@ -1463,12 +1556,12 @@ export default {
         const user = await getUser(request, env);
         return user ? createRoom(request, env, user) : json({ error: "يلزم تسجيل الدخول." }, 401);
       }
-      const memberMatch = url.pathname.match(/^\/api\/rooms\/(QNA-\d{3})\/members\/([a-f0-9-]+)$/i);
+      const memberMatch = url.pathname.match(/^\/api\/rooms\/(\d{6})\/members\/([a-f0-9-]+)$/);
       if (memberMatch && method === "DELETE") {
         const user = await getUser(request, env);
         return user ? kickMember(env, memberMatch[1].toUpperCase(), user, memberMatch[2]) : json({ error: "يلزم تسجيل الدخول." }, 401);
       }
-      const roomMatch = url.pathname.match(/^\/api\/rooms\/(QNA-\d{3})(?:\/(join|start|me|end|leave))?$/i);
+      const roomMatch = url.pathname.match(/^\/api\/rooms\/(\d{6})(?:\/(join|start|me|end|leave))?$/);
       if (roomMatch) {
         const code = roomMatch[1].toUpperCase();
         const action = roomMatch[2];
@@ -1482,7 +1575,7 @@ export default {
         if (action === "end" && method === "POST") return endRoom(env, code, user);
         if (action === "leave" && method === "DELETE") return leaveRoom(env, code, user);
       }
-      const imposterMatch = url.pathname.match(/^\/api\/rooms\/(QNA-\d{3})\/imposter(?:\/(ready|turn|vote|word))?$/i);
+      const imposterMatch = url.pathname.match(/^\/api\/rooms\/(\d{6})\/imposter(?:\/(ready|turn|vote|word))?$/);
       if (imposterMatch) {
         const code = imposterMatch[1].toUpperCase();
         const action = imposterMatch[2];
@@ -1497,7 +1590,7 @@ export default {
       if (url.pathname === "/api/chat/ws") {
         const room = clean(url.searchParams.get("room"), "", 20).toLowerCase();
         if (!room) return json({ error: "رمز الغرفة مطلوب." }, 400);
-        return env.ROOM_CHAT.getByName(room).fetch(request);
+        return roomChatStub(env, room).fetch(request);
       }
       return env.ASSETS.fetch(request);
     } catch (error) {

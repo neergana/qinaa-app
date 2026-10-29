@@ -15,7 +15,7 @@
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" href="/assets/mark.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="/styles.css?v=27" />
+    <link rel="stylesheet" href="/styles.css?v=30" />
   </head>
   <body>
     <div class="ambient ambient-one"></div>
@@ -112,11 +112,14 @@
 
         <section class="view" data-view="lobby">
           <div class="room-banner">
-            <div class="room-code-block"><small>رمز الغرفة</small><strong id="roomCode">QNA-728</strong></div>
-            <button class="copy-button" id="copyCodeButton" type="button" aria-label="نسخ رمز الغرفة">
-              <svg viewBox="0 0 24 24"><rect x="8" y="8" width="11" height="11" rx="2"/><path d="M16 8V6a2 2 0 00-2-2H6a2 2 0 00-2 2v8a2 2 0 002 2h2"/></svg>
-              <span>نسخ</span>
-            </button>
+            <div class="room-code-block"><small>رمز الغرفة</small><strong id="roomCode">123456</strong></div>
+            <div class="room-banner-actions">
+              <button class="copy-button" id="copyCodeButton" type="button" aria-label="نسخ رمز الغرفة">
+                <svg viewBox="0 0 24 24"><rect x="8" y="8" width="11" height="11" rx="2"/><path d="M16 8V6a2 2 0 00-2-2H6a2 2 0 00-2 2v8a2 2 0 002 2h2"/></svg>
+                <span>نسخ</span>
+              </button>
+              <button class="room-leave-button room-leave-button-top" id="leaveLobbyButton" type="button">مغادرة الغرفة</button>
+            </div>
           </div>
 
           <div class="lobby-title">
@@ -158,7 +161,6 @@
             <button class="button button-primary button-large full" id="startGameButton" type="button">
               <span>بدء الجولة</span><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
             </button>
-            <button class="room-leave-button" id="leaveLobbyButton" type="button">مغادرة الغرفة</button>
             <small id="minimumHint">كل شيء جاهز · 8 لاعبين متصلين</small>
           </div>
         </section>
@@ -166,7 +168,7 @@
         <section class="view game-view" data-view="game">
           <div class="game-status-bar">
             <div><span id="phaseIcon" class="phase-icon"><svg viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8Z"/></svg></span><div><small id="roundLabel">الجولة الأولى</small><strong id="phaseLabel">حلّ الليل</strong></div></div>
-            <div class="game-status-actions"><button class="game-leave-button" id="leaveGameButton" type="button">خروج</button><div class="timer" id="mainTimer"><span id="timerValue">01:15</span><small>متبقٍ</small></div></div>
+            <div class="game-status-actions"><button class="game-leave-button" id="leaveGameButton" type="button">مغادرة</button><div class="timer" id="mainTimer"><span id="timerValue">01:15</span><small>متبقٍ</small></div></div>
           </div>
 
           <div class="phase-progress"><span id="phaseProgress"></span></div>
@@ -259,8 +261,8 @@
       <dialog id="joinDialog" class="sheet-dialog">
         <form method="dialog" id="joinForm">
           <div class="dialog-grip"></div>
-          <div class="dialog-heading"><div><small>انضم إلى رفاقك</small><h2>دخول غرفة</h2></div><button class="icon-button" value="cancel" aria-label="إغلاق"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
-          <label>رمز الغرفة<input id="roomCodeInput" inputmode="text" placeholder="QNA-728" maxlength="7" /></label>
+          <div class="dialog-heading"><div><small>انضم إلى رفاقك</small><h2>دخول غرفة</h2></div><button class="icon-button" id="closeJoinDialog" type="button" aria-label="إغلاق"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+          <label>رمز الغرفة<input id="roomCodeInput" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]*" placeholder="123456" maxlength="6" /></label>
           <p class="field-error" id="joinError" role="alert"></p>
           <button class="button button-primary button-large full" value="default">دخول الغرفة</button>
           <small class="safe-copy">يتطلب اللعب حساباً. المشاهدة في الغرف العامة لا تتطلب حساباً.</small>
@@ -347,6 +349,6 @@
       <div id="toast" class="toast" role="status" aria-live="polite"></div>
     </div>
 
-    <script type="module" src="/js/app.js?v=27"></script>
+    <script type="module" src="/js/app.js?v=30"></script>
   </body>
 </html>

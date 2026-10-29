@@ -10,9 +10,9 @@ export const initialPlayers = [
 ];
 
 export const initialRooms = [
-  { id: "majlis", name: "مجلس قِناع", code: "QNA-728", status: "وقت النقاش", phase: "day", players: 8, capacity: 20, spectators: 14, private: false },
-  { id: "rabat", name: "سهرة الرباط", code: "QNA-314", status: "بانتظار اللاعبين", phase: "day", players: 5, capacity: 12, spectators: 3, private: false },
-  { id: "ghosts", name: "نادي الأشباح", code: "QNA-991", status: "حلّ الليل", phase: "night", players: 12, capacity: 12, spectators: 21, private: false },
+  { id: "majlis", name: "مجلس قِناع", code: "728314", status: "وقت النقاش", phase: "day", players: 8, capacity: 20, spectators: 14, private: false },
+  { id: "rabat", name: "سهرة الرباط", code: "314728", status: "بانتظار اللاعبين", phase: "day", players: 5, capacity: 12, spectators: 3, private: false },
+  { id: "ghosts", name: "نادي الأشباح", code: "991364", status: "حلّ الليل", phase: "night", players: 12, capacity: 12, spectators: 21, private: false },
 ];
 
 export const state = {

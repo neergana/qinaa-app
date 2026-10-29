@@ -6,9 +6,9 @@ import {
   resetForNight,
   startDay,
   startVote,
-} from "./state.js?v=27";
-import { roomChat } from "./services/room-chat.js?v=19";
-import { liveKitVoice } from "./services/livekit-voice.js?v=19";
+} from "./state.js?v=30";
+import { roomChat } from "./services/room-chat.js?v=20";
+import { liveKitVoice } from "./services/livekit-voice.js?v=20";
 import { gameAudio } from "./services/game-audio.js?v=23";
 
 const $ = (selector, scope = document) => scope.querySelector(selector);
@@ -105,6 +105,25 @@ function showToast(message) {
 
 function activeRoomCode() {
   return state.rooms.find((room) => room.id === state.activeRoomId)?.code || $("#roomCode")?.textContent || "";
+}
+
+function activeGameType() {
+  const roomType = state.rooms.find((room) => room.id === state.activeRoomId)?.gameType;
+  return roomType || state.imposterGame?.gameType || state.selectedGameType || "mafia";
+}
+
+function isImposterRoom() {
+  return activeGameType() === "imposter";
+}
+
+function normalizeRoomCode(value) {
+  const arabicDigits = "٠١٢٣٤٥٦٧٨٩";
+  const persianDigits = "۰۱۲۳۴۵۶۷۸۹";
+  return String(value || "")
+    .replace(/[٠-٩]/g, (digit) => String(arabicDigits.indexOf(digit)))
+    .replace(/[۰-۹]/g, (digit) => String(persianDigits.indexOf(digit)))
+    .replace(/\D/g, "")
+    .slice(0, 6);
 }
 
 function gamePage(gameType = state.selectedGameType) {
@@ -226,14 +245,13 @@ function releaseMicrophone() {
 
 function desiredVoiceChannel() {
   if (state.route !== "game" || !activeRoomCode()) return null;
-  const activeRoom = state.rooms.find((room) => room.id === state.activeRoomId);
-  if (activeRoom?.gameType === "imposter") return "public";
+  if (isImposterRoom()) return "public";
   const me = state.players.find((player) => player.id === "me");
   if (state.phase === "night") return !state.spectator && me?.alive && me.role === "أفراد الظل" ? "shadow" : null;
   return "public";
 }
 
-async function syncVoiceRoom() {
+async function syncVoiceRoom(force = false) {
   const channel = desiredVoiceChannel();
   if (!channel) {
     if (liveKitVoice.room || liveKitVoice.connecting) await liveKitVoice.disconnect();
@@ -241,7 +259,7 @@ async function syncVoiceRoom() {
     return;
   }
   try {
-    await liveKitVoice.connect(activeRoomCode(), channel);
+    await liveKitVoice.connect(activeRoomCode(), channel, force);
     voiceErrorKey = "";
   } catch (error) {
     state.voiceStatus = "error";
@@ -276,7 +294,7 @@ async function toggleMicrophonePermission() {
   }
 
   try {
-    await syncVoiceRoom();
+    await syncVoiceRoom(true);
     await liveKitVoice.startAudio().catch(() => false);
     await liveKitVoice.setMicrophoneEnabled(true);
     state.micPermission = "granted";
@@ -617,7 +635,7 @@ async function joinRoomAsPlayer(roomId) {
   await loadRoom(room.code);
   state.spectator = false;
   navigate("lobby");
-  void gameAudio.play("welcome");
+  if (!isImposterRoom()) void gameAudio.play("welcome");
   showToast(`انضممت لاعباً إلى ${room.name}`);
 }
 
@@ -668,10 +686,11 @@ function renderRoomDirectory() {
   if (publicRooms.length) quickWatch.dataset.watchRoom = publicRooms[0].id;
   directory.innerHTML = publicRooms.length ? publicRooms.map((room) => {
     const full = room.players >= room.capacity;
+    const started = room.status === "جولة جارية";
     return `<article class="room-card">
       <div class="room-card-top"><div><span class="room-status"><i></i>${escapeHtml(room.status)}</span><h3>${escapeHtml(room.name)}</h3></div><span class="room-code-mini">${escapeHtml(room.code)}</span></div>
       <div class="room-card-meta"><span>${icon("users")} ${room.players} / ${room.capacity} لاعبين</span><span>${icon("eye")} ${room.spectators} مشاهدين</span></div>
-      <div class="room-card-actions"><button class="button button-secondary" data-watch-room="${room.id}" type="button">${icon("eye")} مشاهدة</button><button class="button button-primary" data-join-room="${room.id}" type="button" ${full ? "disabled" : ""}>${full ? "مكتملة" : "انضم لاعباً"}</button></div>
+      <div class="room-card-actions"><button class="button button-secondary" data-watch-room="${room.id}" type="button">${icon("eye")} مشاهدة</button><button class="button button-primary" data-join-room="${room.id}" type="button" ${full || started ? "disabled" : ""}>${full ? "مكتملة" : started ? "بدأت الجولة" : "انضم لاعباً"}</button></div>
     </article>`;
   }).join("") : '<div class="rooms-empty">لا توجد غرف عامة الآن. يمكنك إنشاء غرفة جديدة.</div>';
 }
@@ -706,6 +725,8 @@ async function loadImposterState() {
   const data = await apiRequest(`/api/rooms/${encodeURIComponent(activeRoomCode())}/imposter`);
   const previousRound = state.imposterGame?.round;
   state.imposterGame = data;
+  state.selectedGameType = "imposter";
+  gameAudio.stop();
   if (previousRound && previousRound !== data.round) {
     state.imposterRoleRevealed = false;
     state.imposterVoteSelections = [];
@@ -723,8 +744,7 @@ function startLobbyPolling() {
     try {
       await loadRoom(activeRoomCode());
       if (state.route === "game") {
-        const activeRoom = state.rooms.find((room) => room.id === state.activeRoomId);
-        if (activeRoom?.gameType === "imposter") await loadImposterState();
+        if (isImposterRoom()) await loadImposterState();
         renderGame();
         return;
       }
@@ -784,14 +804,15 @@ function navigate(route, { fromHistory = false, replace = false } = {}) {
   if (route === "game-landing") renderGameLanding();
   if (route === "profile") renderProfilePage();
   if (route === "game") {
-    const activeRoom = state.rooms.find((room) => room.id === state.activeRoomId);
     connectCurrentRoomChat();
     renderGame();
     syncVoiceRoom();
     startTicker();
     startLobbyPolling();
-    if (activeRoom?.gameType === "imposter") loadImposterState().then(renderGame).catch((error) => showToast(error.message));
-    else void beginNightNarration();
+    if (isImposterRoom()) {
+      gameAudio.stop();
+      loadImposterState().then(renderGame).catch((error) => showToast(error.message));
+    } else void beginNightNarration();
   }
 }
 
@@ -814,6 +835,7 @@ function renderLobby() {
     </div>`;
   }).join("");
   $("#playerCount").textContent = state.players.length;
+  $(".player-total span").textContent = `/ ${activeRoom?.capacity || (imposter ? 18 : 20)}`;
   $("#tablePlayerCount").textContent = state.players.length;
   $("#lobbyRoomName").textContent = activeRoom?.name || (imposter ? "مجلس الدخيل" : "مجلس قِناع");
   $("#lobbyRoomKicker").textContent = imposter ? "غرفة الدخيل" : "غرفة أفراد الظل";
@@ -822,10 +844,11 @@ function renderLobby() {
   $$('[data-mafia-setting]').forEach((row) => { row.hidden = imposter; });
   $$('[data-imposter-setting]').forEach((row) => { row.hidden = !imposter; });
   const minimum = imposter ? 4 : 5;
-  $("#minimumHint").textContent = state.spectator ? "الجولة لم تبدأ بعد؛ ستنتقل إلى المشاهدة عند بدئها" : !isHost ? "في انتظار أن يبدأ المضيف الجولة" : state.players.length >= minimum ? `كل شيء جاهز · ${state.players.length} لاعبين` : imposter ? `تحتاج اللعبة إلى ${minimum - state.players.length} لاعبين إضافيين` : `سيضيف قِناع ${minimum - state.players.length} روبوتات تلقائياً عند البدء`;
-  $("#startGameButton").disabled = !isHost || state.spectator || (imposter && state.players.length < 4);
+  $("#minimumHint").textContent = state.spectator ? "الجولة لم تبدأ بعد؛ ستنتقل إلى المشاهدة عند بدئها" : !isHost ? "في انتظار أن يبدأ المضيف الجولة" : state.players.length >= minimum ? `كل شيء جاهز · ${state.players.length} لاعبين` : `سيضيف قِناع ${minimum - state.players.length} روبوتات تلقائياً عند البدء`;
+  $("#startGameButton").disabled = !isHost || state.spectator;
   $("#startGameButton span").textContent = imposter ? "بدء لعبة الدخيل" : "بدء الجولة";
   $("#leaveLobbyButton").textContent = state.spectator ? "مغادرة المشاهدة" : "مغادرة الغرفة";
+  $(".host-note").hidden = !isHost || state.spectator;
   $("#cupidToggle").checked = state.options.cupid;
   $("#witchToggle").checked = state.options.witch;
   $("#privateRoomToggle").checked = state.options.privateRoom;
@@ -857,8 +880,7 @@ function startTicker() {
   if (gameTicker) return;
   gameTicker = window.setInterval(() => {
     if (state.route !== "game") return;
-    const activeRoom = state.rooms.find((room) => room.id === state.activeRoomId);
-    if (activeRoom?.gameType === "imposter") {
+    if (isImposterRoom()) {
       if (state.imposterGame?.phase === "vote" && Number.isFinite(state.imposterGame.voteSecondsRemaining)) {
         state.imposterGame.voteSecondsRemaining = Math.max(0, state.imposterGame.voteSecondsRemaining - 1);
         const timer = $("#timerValue");
@@ -926,6 +948,15 @@ function imposterPlayer(id) {
   return state.imposterGame?.players?.find((player) => player.id === id) || state.players.find((player) => (player.rawId || player.id) === id);
 }
 
+function formatVoteCount(countValue) {
+  const count = Number(countValue || 0);
+  if (count === 0) return "لا أصوات";
+  if (count === 1) return "صوت واحد";
+  if (count === 2) return "صوتان";
+  if (count <= 10) return `${count} أصوات`;
+  return `${count} صوتاً`;
+}
+
 function imposterVoiceChat() {
   const mic = micStatus();
   return `<div class="imposter-voice-chat">
@@ -938,6 +969,8 @@ function imposterTemplate() {
   const game = state.imposterGame;
   if (!game) return '<div class="imposter-stage"><div class="turn-wait">جارٍ تحميل حالة لعبة الدخيل…</div></div>';
   const me = game.me;
+  const activeRoom = state.rooms.find((room) => room.id === state.activeRoomId);
+  const isHost = Boolean(state.account && activeRoom?.hostUserId === state.account.id);
   if (game.phase === "reveal") {
     if (!me) return `<div class="imposter-stage"><section class="imposter-hero"><small>مرحلة سرية</small><h1>اللاعبون يكشفون بطاقاتهم</h1><p>بصفتك مشاهداً، لن ترى الكلمات أو الأدوار السرية.</p></section>${imposterVoiceChat()}</div>`;
     const revealed = state.imposterRoleRevealed;
@@ -992,12 +1025,17 @@ function imposterTemplate() {
   const winnerLabel = results.winner === "knowers" ? "فاز أهل الكلمة" : "فاز الدخلاء";
   return `<div class="imposter-stage"><section class="imposter-hero"><small>انتهت الجولة</small><h1>كُشفت الحقيقة</h1><p>ظهرت النتيجة الإجمالية من دون كشف هوية المصوّتين.</p></section>
     <div class="imposter-results"><div class="result-banner"><span>${escapeHtml(results.secretWord || "")}</span><strong>${winnerLabel}</strong></div>
-      <div class="result-list">${game.players.map((player) => `<div class="result-row"><span>${escapeHtml(player.name)}${results.imposters?.includes(player.id) ? " · الدخيل" : ""}</span><small>${Number(results.voteCounts?.[player.id] || 0)} أصوات</small></div>`).join("")}</div>
+      <div class="result-list">${game.players.map((player) => `<div class="result-row"><span>${escapeHtml(player.name)}${results.imposters?.includes(player.id) ? " · الدخيل" : ""}</span><small>${formatVoteCount(results.voteCounts?.[player.id])}</small></div>`).join("")}</div>
       ${results.tieAtCutoff ? '<div class="turn-wait">حدث تعادل عند حدّ الاختيار، لذلك لم يُعتبر المتعادلون مكشوفين.</div>' : ""}
+      <div class="imposter-result-actions">
+        ${isHost ? '<button class="button button-primary full" data-action="end-round">إنهاء الغرفة والعودة للرئيسية</button>' : ''}
+        <button class="button button-secondary full" data-action="leave-room">مغادرة الغرفة</button>
+      </div>
     </div></div>`;
 }
 
 function renderImposterGame() {
+  gameAudio.stop();
   const game = state.imposterGame;
   const labels = { reveal: "كشف البطاقات", questions: "الأسئلة والأجوبة", vote: "التصويت السري", results: "نتيجة الجولة" };
   $("#roundLabel").textContent = `الدخيل · الجولة ${game?.round || 1}`;
@@ -1015,7 +1053,7 @@ function renderImposterGame() {
 
 function renderGame() {
   const activeRoom = state.rooms.find((room) => room.id === state.activeRoomId);
-  if (activeRoom?.gameType === "imposter") return renderImposterGame();
+  if (isImposterRoom()) return renderImposterGame();
   $("#mainTimer").hidden = false;
   $$('[data-game-tab]').forEach((button) => { button.hidden = false; });
   if (state.currentTab === "chat") state.currentTab = "arena";
@@ -1430,12 +1468,15 @@ async function handleGameAction(action, target) {
     showToast("وضع المشاهدة للمتابعة فقط");
     return;
   }
-  if (action === "toggle-mic") {
+  if (action === "leave-room") {
+    await leaveCurrentRoom();
+    return;
+  } else if (action === "toggle-mic") {
     await toggleMicrophonePermission();
     return;
   } else if (action === "start-audio") {
     try {
-      await syncVoiceRoom();
+      await syncVoiceRoom(true);
       await liveKitVoice.startAudio();
       showToast("تم تشغيل صوت الغرفة");
     } catch (error) { showToast(error.message || "تعذر تشغيل الصوت"); }
@@ -1787,17 +1828,30 @@ function bindEvents() {
         state.rooms.unshift(data.room);
         await loadRoom(data.room.code);
         navigate("lobby");
-        void gameAudio.play("welcome");
+        if (!isImposterRoom()) void gameAudio.play("welcome");
         showToast(`أُنشئت غرفة ${gamePage(state.selectedGameType).name}`);
       } catch (error) { showToast(error.message); }
     });
   });
-  $("#joinRoomButton").addEventListener("click", () => requireAccount(() => $("#joinDialog").showModal()));
+  $("#joinRoomButton").addEventListener("click", () => requireAccount(() => {
+    $("#joinError").textContent = "";
+    $("#roomCodeInput").value = "";
+    $("#joinDialog").showModal();
+  }));
+  $("#closeJoinDialog").addEventListener("click", () => {
+    $("#joinError").textContent = "";
+    $("#joinDialog").close();
+  });
+  $("#roomCodeInput").addEventListener("input", (event) => {
+    event.target.value = normalizeRoomCode(event.target.value);
+    $("#joinError").textContent = "";
+  });
   $("#joinForm").addEventListener("submit", async (event) => {
     event.preventDefault();
-    const code = $("#roomCodeInput").value.trim().toUpperCase();
-    if (!/^QNA-[0-9]{3}$/.test(code)) {
-      $("#joinError").textContent = "اكتب رمز غرفة صالحاً (جرّب QNA-728).";
+    const code = normalizeRoomCode($("#roomCodeInput").value);
+    $("#roomCodeInput").value = code;
+    if (!/^[0-9]{6}$/.test(code)) {
+      $("#joinError").textContent = "اكتب رمز الغرفة المكوّن من 6 أرقام.";
       return;
     }
     try {
@@ -1807,7 +1861,7 @@ function bindEvents() {
       $("#joinDialog").close();
       $("#joinError").textContent = "";
       navigate("lobby");
-      void gameAudio.play("welcome");
+      if (!isImposterRoom()) void gameAudio.play("welcome");
       showToast("دخلت الغرفة بنجاح");
     } catch (error) { $("#joinError").textContent = error.message; }
   });
@@ -1860,6 +1914,7 @@ function bindEvents() {
         state.imposterWordChoice = null;
         await loadImposterState();
         navigate("game");
+        if (data.botsAdded) showToast(`أضيف ${data.botsAdded} من الروبوتات لإكمال العدد`);
       } else {
         prepareRoleReveal(data.role, data.partners || []);
         if (data.botsAdded) showToast(`أضيف ${data.botsAdded} من الروبوتات لإكمال الجولة`);
@@ -1910,6 +1965,16 @@ function bindEvents() {
   });
 
   roomChat.addEventListener("chat-error", (event) => showToast(event.detail));
+  roomChat.addEventListener("game-sync", async (event) => {
+    if (event.detail?.gameType !== "imposter" || state.route !== "game" || !activeRoomCode()) return;
+    try {
+      await loadRoom(activeRoomCode());
+      await loadImposterState();
+      renderGame();
+    } catch (error) {
+      if (error.data?.ended) navigate("home", { replace: true });
+    }
+  });
   liveKitVoice.addEventListener("status", (event) => {
     state.voiceStatus = event.detail;
     if (state.route === "game") renderGame();

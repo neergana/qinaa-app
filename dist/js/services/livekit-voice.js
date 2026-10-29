@@ -11,23 +11,40 @@ class LiveKitVoice extends EventTarget {
     this.generation = 0;
     this.audioElements = new Set();
     this.closingRooms = new WeakSet();
+    this.retryKey = null;
+    this.retryAfter = 0;
+    this.retryError = null;
   }
 
   emit(type, detail) {
     this.dispatchEvent(new CustomEvent(type, { detail }));
   }
 
-  async connect(roomCode, channel = "public") {
+  async connect(roomCode, channel = "public", force = false) {
     if (!roomCode || !channel) return this.disconnect();
     if (this.room && this.roomCode === roomCode && this.channel === channel) return this.room;
     if (this.connecting?.roomCode === roomCode && this.connecting?.channel === channel) return this.connecting.promise;
+    const retryKey = `${roomCode}:${channel}`;
+    if (!force && this.retryKey === retryKey && Date.now() < this.retryAfter) throw this.retryError || new Error("تعذر ربط الصوت مؤقتاً.");
 
     const generation = ++this.generation;
     await this.disconnect(false);
     this.emit("status", "connecting");
     const promise = this.open(roomCode, channel, generation);
     this.connecting = { roomCode, channel, promise };
-    try { return await promise; } catch (error) { this.emit("status", "error"); throw error; } finally { if (this.connecting?.promise === promise) this.connecting = null; }
+    try {
+      const room = await promise;
+      this.retryKey = null;
+      this.retryAfter = 0;
+      this.retryError = null;
+      return room;
+    } catch (error) {
+      this.retryKey = retryKey;
+      this.retryAfter = Date.now() + 10000;
+      this.retryError = error;
+      this.emit("status", "error");
+      throw error;
+    } finally { if (this.connecting?.promise === promise) this.connecting = null; }
   }
 
   async open(roomCode, channel, generation) {
