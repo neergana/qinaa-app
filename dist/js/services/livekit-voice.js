@@ -20,6 +20,22 @@ class LiveKitVoice extends EventTarget {
     this.dispatchEvent(new CustomEvent(type, { detail }));
   }
 
+  emitParticipants(room = this.room) {
+    if (!room) {
+      this.emit("participants", []);
+      return;
+    }
+    const participants = [room.localParticipant, ...room.remoteParticipants.values()]
+      .filter((participant) => participant?.identity)
+      .map((participant) => ({
+        identity: participant.identity,
+        name: participant.name || "لاعب",
+        microphoneOn: Boolean(participant.isMicrophoneEnabled),
+        isLocal: Boolean(participant.isLocal),
+      }));
+    this.emit("participants", participants);
+  }
+
   async connect(roomCode, channel = "public", force = false) {
     if (!roomCode || !channel) return this.disconnect();
     if (this.room && this.roomCode === roomCode && this.channel === channel) return this.room;
@@ -74,7 +90,20 @@ class LiveKitVoice extends EventTarget {
     room.on(RoomEvent.AudioPlaybackStatusChanged, () => {
       if (!room.canPlaybackAudio) this.emit("audio-blocked", true);
     });
-    room.on(RoomEvent.ActiveSpeakersChanged, (speakers) => this.emit("active-speakers", speakers.map((speaker) => speaker.identity)));
+    const refreshParticipants = () => this.emitParticipants(room);
+    room.on(RoomEvent.ParticipantConnected, refreshParticipants);
+    room.on(RoomEvent.ParticipantDisconnected, refreshParticipants);
+    room.on(RoomEvent.TrackPublished, refreshParticipants);
+    room.on(RoomEvent.TrackUnpublished, refreshParticipants);
+    room.on(RoomEvent.TrackMuted, refreshParticipants);
+    room.on(RoomEvent.TrackUnmuted, refreshParticipants);
+    room.on(RoomEvent.LocalTrackPublished, refreshParticipants);
+    room.on(RoomEvent.LocalTrackUnpublished, refreshParticipants);
+    room.on(RoomEvent.ParticipantNameChanged, refreshParticipants);
+    room.on(RoomEvent.ActiveSpeakersChanged, (speakers) => {
+      this.emit("active-speakers", speakers.map((speaker) => speaker.identity));
+      refreshParticipants();
+    });
     room.on(RoomEvent.Reconnecting, () => this.emit("status", "reconnecting"));
     room.on(RoomEvent.Reconnected, () => this.emit("status", "connected"));
     room.on(RoomEvent.Disconnected, () => {
@@ -85,6 +114,8 @@ class LiveKitVoice extends EventTarget {
         this.channel = null;
         this.canPublish = false;
       }
+      this.emit("participants", []);
+      this.emit("active-speakers", []);
       this.emit("status", "disconnected");
     });
 
@@ -96,6 +127,8 @@ class LiveKitVoice extends EventTarget {
     this.canPublish = Boolean(data.can_publish);
     this.emit("status", "connected");
     this.emit("channel", channel);
+    this.emitParticipants(room);
+    this.emit("active-speakers", room.activeSpeakers.map((speaker) => speaker.identity));
     return room;
   }
 
@@ -114,6 +147,7 @@ class LiveKitVoice extends EventTarget {
       noiseSuppression: true,
       autoGainControl: true,
     });
+    this.emitParticipants(this.room);
     this.emit("microphone", Boolean(enabled));
     return Boolean(enabled);
   }
@@ -128,6 +162,8 @@ class LiveKitVoice extends EventTarget {
     this.canPublish = false;
     this.audioElements.forEach((element) => element.remove());
     this.audioElements.clear();
+    this.emit("participants", []);
+    this.emit("active-speakers", []);
     if (room) {
       try { await room.localParticipant.setMicrophoneEnabled(false); } catch (_) { /* Already disconnected. */ }
       this.closingRooms.add(room);

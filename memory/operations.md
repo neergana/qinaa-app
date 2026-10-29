@@ -5,6 +5,7 @@
 - الموقع: `https://qinaaapp.com`
 - Worker fallback: `https://harat-almafia.mafia-alley.workers.dev`
 - Cloudflare Worker name الحالي: `harat-almafia`.
+- حساب Cloudflare المعتمد للمشروع هو حساب **Rgana Mohamed** فقط؛ لا يُنشر هذا المشروع في حساب Goussaka Marwan.
 - D1 binding: `DB`، database name: `qinaa-production`.
 - Durable Object binding: `ROOM_CHAT`، class: `RoomChat`.
 
@@ -54,4 +55,3 @@ wrangler deploy
 - الجلسات HttpOnly وSameSite=Lax وSecure على HTTPS.
 - راجع صلاحيات OAuth redirect URIs عند تغيير الدومين.
 - أي credential ظهر في محادثة أو سجل يجب إلغاؤه وتدويره، حتى لو لم يوجد في Git.
-

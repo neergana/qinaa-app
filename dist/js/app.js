@@ -6,9 +6,9 @@ import {
   resetForNight,
   startDay,
   startVote,
-} from "./state.js?v=30";
+} from "./state.js?v=31";
 import { roomChat } from "./services/room-chat.js?v=20";
-import { liveKitVoice } from "./services/livekit-voice.js?v=20";
+import { liveKitVoice } from "./services/livekit-voice.js?v=21";
 import { gameAudio } from "./services/game-audio.js?v=23";
 
 const $ = (selector, scope = document) => scope.querySelector(selector);
@@ -26,6 +26,8 @@ let nightAudioTransition = false;
 let narratedNightRound = null;
 let scheduledBotVoteKey = "";
 let selectedProfileAvatar = "mask-01";
+let gameRenderDeferred = false;
+const chatDrafts = { public: "", mafia: "", dead: "" };
 
 const gameDefaults = {
   mafia: { gameType: "mafia", slug: "afrad-alzil", name: "أفراد الظل", eyebrow: "لعبة الأدوار والاستنتاج", shortDescription: "اكشف أفراد الظل عبر النقاش والأدوار السرية قبل أن يسيطروا على الجولة." },
@@ -318,6 +320,49 @@ function micStatus() {
   if (state.micPermission === "denied") return { title: "إذن الميكروفون مرفوض", detail: "فعّله من إعدادات المتصفح ثم حاول مجدداً", button: "إعادة المحاولة" };
   if (state.micPermission === "granted") return { title: "الميكروفون مطفأ", detail: "لا أحد يسمعك الآن", button: "تشغيل" };
   return { title: "الميكروفون مطفأ افتراضياً", detail: "لن يُطلب الإذن حتى تضغط على تشغيل", button: "السماح والتشغيل" };
+}
+
+function voiceParticipantProfile(participant) {
+  const player = state.players.find((item) => (item.rawId || item.id) === participant.identity)
+    || state.imposterGame?.players?.find((item) => item.id === participant.identity);
+  if (player) return player;
+  return {
+    id: participant.identity,
+    name: participant.name?.replace(" · مشاهد", "") || "لاعب",
+    initial: participant.name?.charAt(0) || "؟",
+    accent: "a3",
+  };
+}
+
+function voiceParticipantsMarkup() {
+  const active = new Set(state.activeSpeakers || []);
+  const participants = [...(state.voiceParticipants || [])]
+    .sort((first, second) => Number(active.has(second.identity)) - Number(active.has(first.identity)));
+  if (!participants.length) {
+    const copy = state.voiceStatus === "connected" ? "لا يوجد لاعب متصل بالصوت الآن." : "جارٍ تجهيز قائمة الصوت…";
+    return `<div class="voice-participants-head"><strong>المشاركون صوتياً</strong><span>0</span></div><div class="voice-participants-empty">${copy}</div>`;
+  }
+  return `<div class="voice-participants-head"><strong>المشاركون صوتياً</strong><span>${participants.length}</span></div>
+    <div class="voice-participant-grid">${participants.map((participant) => {
+      const profile = voiceParticipantProfile(participant);
+      const speaking = active.has(participant.identity);
+      const microphoneOn = speaking || participant.microphoneOn;
+      const status = speaking ? "يتحدث الآن" : microphoneOn ? "الميكروفون مفتوح" : "الميكروفون مطفأ";
+      return `<article class="voice-participant-card ${speaking ? "is-speaking" : ""} ${microphoneOn ? "has-mic" : "is-muted"}" aria-label="${escapeHtml(profile.name)}، ${status}">
+        <div class="voice-participant-avatar">${avatar(profile)}</div>
+        <div class="voice-participant-copy"><strong>${escapeHtml(profile.name)}</strong><small>${status}</small></div>
+        <span class="voice-mic-state">${icon(microphoneOn ? "mic" : "micOff")}</span>
+        ${speaking ? '<span class="speaker-frequency" aria-hidden="true"><i></i><i></i><i></i><i></i></span>' : ""}
+      </article>`;
+    }).join("")}</div>`;
+}
+
+function voiceParticipantsTemplate() {
+  return `<section class="voice-participants" data-voice-participants>${voiceParticipantsMarkup()}</section>`;
+}
+
+function refreshVoiceParticipants() {
+  $$('[data-voice-participants]').forEach((container) => { container.innerHTML = voiceParticipantsMarkup(); });
 }
 
 const roleDetails = {
@@ -781,6 +826,10 @@ function navigate(route, { fromHistory = false, replace = false } = {}) {
     gameAudio.stop();
     nightAudioTransition = false;
     narratedNightRound = null;
+    gameRenderDeferred = false;
+    Object.keys(chatDrafts).forEach((channel) => { chatDrafts[channel] = ""; });
+    state.voiceParticipants = [];
+    state.activeSpeakers = [];
     releaseMicrophone();
     liveKitVoice.disconnect();
     roomChat.disconnect();
@@ -961,6 +1010,7 @@ function imposterVoiceChat() {
   const mic = micStatus();
   return `<div class="imposter-voice-chat">
     <div class="voice-bar"><div><span class="voice-visual"><i></i><i></i><i></i></span><span><strong>${state.spectator ? "الاستماع إلى الغرفة" : "الصوت العام"}</strong><small>${state.voiceStatus === "connected" ? "متصل عبر LiveKit" : "جارٍ الاتصال بالصوت…"}</small></span></div><button class="mic-button ${state.micOn ? "" : "is-muted"}" data-action="toggle-mic" ${state.spectator ? "disabled" : ""}>${icon(state.micOn ? "mic" : "micOff")}</button></div>
+    ${voiceParticipantsTemplate()}
     ${channelTemplate("public")}
   </div>`;
 }
@@ -1051,7 +1101,16 @@ function renderImposterGame() {
   syncVoiceRoom();
 }
 
+function chatComposerFocused() {
+  return document.activeElement?.matches?.('#gameContent [data-chat-form] input[name="message"]');
+}
+
 function renderGame() {
+  if (chatComposerFocused()) {
+    gameRenderDeferred = true;
+    return;
+  }
+  gameRenderDeferred = false;
   const activeRoom = state.rooms.find((room) => room.id === state.activeRoomId);
   if (isImposterRoom()) return renderImposterGame();
   $("#mainTimer").hidden = false;
@@ -1127,7 +1186,7 @@ function nightTemplate() {
       ${isShadow ? `<div class="section-label"><h2>همس أفراد الظل</h2><span>خاص ومباشر</span></div>${channelTemplate("mafia")}<div class="voice-bar">
         <div><span class="voice-visual"><i></i><i></i><i></i></span><span><strong>قناة الصوت الخاصة</strong><small>${state.voiceStatus === "connected" ? "متصلة عبر LiveKit" : "جارٍ ربط القناة السرية…"}</small></span></div>
         <button class="mic-button ${state.micOn ? "" : "is-muted"}" data-action="toggle-mic" aria-label="${state.micOn ? "كتم الميكروفون" : "تشغيل الميكروفون"}">${icon(state.micOn ? "mic" : "micOff")}</button>
-      </div>` : ""}
+      </div>${voiceParticipantsTemplate()}` : ""}
       <div class="automation-note">${icon("shield")}<p><strong>الانتقال آلي.</strong> لكل دور اختياره وزر تأكيده الخاص، ولا يستطيع المضيف اتخاذ القرار بدلاً منه.</p></div>
     </div>`;
 }
@@ -1162,6 +1221,7 @@ function dayTemplate() {
       <section class="arena-comms">
         <div class="arena-comms-head"><div><small>${chatChannel === "dead" ? "نص فقط بعد الإقصاء" : "الصوت والنص في المكان نفسه"}</small><h2>${chatChannel === "dead" ? "مجلس الموتى" : "مجلس قِناع"}</h2></div><span class="chat-live-status status-${state.chatStatus}" id="publicChatStatus">${chatStatusLabel()}</span></div>
         ${chatChannel === "public" ? `<div class="voice-control-card ${state.micOn ? "is-live" : ""}"><span class="voice-control-icon">${icon(state.micOn ? "mic" : "micOff")}</span><div><strong>${state.speaker && !isMyTurn ? `الدور عند ${escapeHtml(state.speaker.name)}` : mic.title}</strong><small>${state.speaker && !isMyTurn ? "لا يستطيع أحد قطع مداخلته" : mic.detail}</small></div><button class="mic-control-button" data-action="toggle-mic" type="button" ${micDisabled ? "disabled" : ""}>${mic.button}</button></div>` : ""}
+        ${chatChannel === "public" ? voiceParticipantsTemplate() : ""}
         ${channelTemplate(chatChannel)}
         <div class="realtime-note"><i></i><p><strong>الصوت والنص مباشران الآن.</strong> الميكروفون مطفأ افتراضياً ولا يطلب الإذن إلا بعد ضغطك على تشغيل.</p></div>
       </section>
@@ -1190,6 +1250,7 @@ function defenseTemplate() {
       <div class="defense-chamber">
         <div class="defense-person">${avatar(candidate)}<div><small>صاحب الدفاع</small><strong>${escapeHtml(candidate.name)}</strong></div><b id="defenseClock">${formatTime(state.defenseRemaining)}</b></div>
         <div class="defense-voice ${state.defenseStarted ? "is-live" : ""}">${icon(state.defenseStarted ? "mic" : "micOff")}<div><strong>${state.defenseStarted ? "الدفاع جارٍ الآن" : "لم يبدأ الدفاع بعد"}</strong><small>${isMyDefense ? "أنت وحدك تتحكم في الميكروفون والإنهاء" : `التحكم لدى ${escapeHtml(candidate.name)} وحده`}</small></div></div>
+        ${voiceParticipantsTemplate()}
         ${isMyDefense ? `<button class="button button-primary full" data-action="${state.defenseStarted ? "finish-defense" : "begin-defense"}">${state.defenseStarted ? "إنهاء دفاعي" : "بدء دفاعي"}</button>` : `<div class="defense-readonly">${state.defenseStarted ? `بدأ ${escapeHtml(candidate.name)} دفاعه. لا يمكن للمضيف أو أي لاعب آخر إيقافه.` : `ننتظر ${escapeHtml(candidate.name)} ليبدأ دفاعه.`}</div>`}
       </div>
       <div class="automation-note">${icon("shield")}<p><strong>لا طابور ولا تدخل من المضيف.</strong> بعد انتهاء دفاع جميع المتعادلين تبدأ إعادة التصويت تلقائياً.</p></div>
@@ -1265,7 +1326,7 @@ function channelTemplate(channel) {
   const isPublic = channel === "public";
   const title = isPublic ? "المحادثة العامة" : channel === "mafia" ? "قناة سرية" : "محادثة الموتى";
   const readOnly = isPublic && state.spectator;
-  return `<div class="mafia-channel ${isPublic ? "public-channel" : ""}"><div class="channel-head"><div>${icon(isPublic ? "chat" : channel === "mafia" ? "lock" : "skull")}<strong>${title}</strong></div><span class="channel-mode">${readOnly ? "قراءة فقط" : "محفوظ في الجولة"}</span></div><div class="messages" id="messageList-${channel}">${messageMarkup(channel)}</div>${readOnly ? '<div class="chat-readonly">يمكنك متابعة المحادثة بلا حساب. أنشئ حساب لاعب لتشارك.</div>' : `<form class="chat-compose" data-chat-form="${channel}"><input name="message" maxlength="${isPublic ? 180 : 120}" placeholder="اكتب رسالة قصيرة…" autocomplete="off" aria-label="رسالة"><button type="submit" aria-label="إرسال">${icon("send")}</button></form>`}</div>`;
+  return `<div class="mafia-channel ${isPublic ? "public-channel" : ""}"><div class="channel-head"><div>${icon(isPublic ? "chat" : channel === "mafia" ? "lock" : "skull")}<strong>${title}</strong></div><span class="channel-mode">${readOnly ? "قراءة فقط" : "محفوظ في الجولة"}</span></div><div class="messages" id="messageList-${channel}">${messageMarkup(channel)}</div>${readOnly ? '<div class="chat-readonly">يمكنك متابعة المحادثة بلا حساب. أنشئ حساب لاعب لتشارك.</div>' : `<form class="chat-compose" data-chat-form="${channel}"><input name="message" value="${escapeHtml(chatDrafts[channel] || "")}" maxlength="${isPublic ? 180 : 120}" placeholder="اكتب رسالة قصيرة…" autocomplete="off" aria-label="رسالة"><button type="submit" aria-label="إرسال">${icon("send")}</button></form>`}</div>`;
 }
 
 function messageMarkup(channel) {
@@ -1931,6 +1992,22 @@ function bindEvents() {
   $("#roleDialog").addEventListener("cancel", (event) => event.preventDefault());
   $("#enterGameButton").addEventListener("click", enterGameAfterRole);
 
+  gameContent.addEventListener("input", (event) => {
+    const input = event.target.closest('[data-chat-form] input[name="message"]');
+    if (!input) return;
+    const form = input.closest("[data-chat-form]");
+    chatDrafts[form.dataset.chatForm] = input.value;
+  });
+
+  gameContent.addEventListener("focusout", (event) => {
+    if (!event.target.matches?.('[data-chat-form] input[name="message"]')) return;
+    window.setTimeout(() => {
+      if (chatComposerFocused() || !gameRenderDeferred || state.route !== "game") return;
+      gameRenderDeferred = false;
+      renderGame();
+    }, 0);
+  });
+
   gameContent.addEventListener("submit", (event) => {
     const form = event.target.closest("[data-chat-form]");
     if (!form) return;
@@ -1944,6 +2021,7 @@ function bindEvents() {
       showToast("المحادثة تعيد الاتصال — حاول بعد لحظة");
       return;
     }
+    chatDrafts[channel] = "";
     input.value = "";
   });
 
@@ -1982,6 +2060,14 @@ function bindEvents() {
   liveKitVoice.addEventListener("microphone", (event) => {
     state.micOn = Boolean(event.detail);
     if (state.route === "game") renderGame();
+  });
+  liveKitVoice.addEventListener("participants", (event) => {
+    state.voiceParticipants = Array.isArray(event.detail) ? event.detail : [];
+    if (state.route === "game") refreshVoiceParticipants();
+  });
+  liveKitVoice.addEventListener("active-speakers", (event) => {
+    state.activeSpeakers = Array.isArray(event.detail) ? event.detail : [];
+    if (state.route === "game") refreshVoiceParticipants();
   });
   liveKitVoice.addEventListener("audio-blocked", (event) => {
     if (event.detail) showToast("اضغط على تشغيل الصوت ليسمح المتصفح بالاستماع");

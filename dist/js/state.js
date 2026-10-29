@@ -61,6 +61,8 @@ export const state = {
   revealVoters: false,
   micPermission: "prompt",
   voiceStatus: "disconnected",
+  voiceParticipants: [],
+  activeSpeakers: [],
   chatStatus: "disconnected",
   messages: {
     public: [],
