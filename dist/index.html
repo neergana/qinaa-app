@@ -15,14 +15,17 @@
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" href="/assets/mark.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="/styles.css?v=35" />
+    <link rel="stylesheet" href="/styles.css?v=36" />
   </head>
   <body>
     <div class="ambient ambient-one"></div>
     <div class="ambient ambient-two"></div>
 
     <div id="app" class="app-shell">
-      <header class="topbar">
+      <header class="topbar" id="siteHeader">
+        <button class="icon-button header-back-button" id="headerBackButton" type="button" aria-label="العودة" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
+        </button>
         <button class="brand" data-route="home" aria-label="العودة إلى الرئيسية">
           <span class="brand-mark" aria-hidden="true">
             <svg viewBox="0 0 44 44" role="img"><path d="M11 30c4-2 5-8 5-13 3 2 5 2 8 0 0 6 2 11 9 13-6 5-16 5-22 0Z"/><path d="M13 13c3 0 5-2 6-5 2 4 5 5 9 3-1 4 1 7 5 9-8 2-15-1-20-7Z"/></svg>
@@ -82,7 +85,6 @@
 
         <section class="view game-landing-view" data-view="game-landing">
           <div class="game-landing-hero" id="gameLandingHero">
-            <button class="icon-button game-back" data-route="home" type="button" aria-label="العودة"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
             <span class="game-landing-symbol" id="gameLandingSymbol">♛</span>
             <small id="gameLandingEyebrow">لعبة الأدوار والاستنتاج</small>
             <h1 id="gameLandingTitle">أفراد الظل</h1>
@@ -196,7 +198,6 @@
 
         <section class="view profile-view" data-view="profile">
           <div class="profile-page-head">
-            <button class="icon-button" data-route="home" type="button" aria-label="العودة"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
             <div><small>حساب QINAA</small><h1>الملف الشخصي</h1></div>
           </div>
           <form id="profileForm" class="profile-form" novalidate>
@@ -346,6 +347,6 @@
       <div id="toast" class="toast" role="status" aria-live="polite"></div>
     </div>
 
-    <script type="module" src="/js/app.js?v=35"></script>
+    <script type="module" src="/js/app.js?v=36"></script>
   </body>
 </html>

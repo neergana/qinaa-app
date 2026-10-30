@@ -6,7 +6,7 @@ import {
   resetForNight,
   startDay,
   startVote,
-} from "./state.js?v=35";
+} from "./state.js?v=36";
 import { roomChat } from "./services/room-chat.js?v=20";
 import { liveKitVoice } from "./services/livekit-voice.js?v=21";
 import { gameAudio } from "./services/game-audio.js?v=23";
@@ -157,6 +157,18 @@ function pathForRoute(route) {
   if (route === "rules") return "/rules";
   if (route === "game-landing") return `/games/${encodeURIComponent(gamePage().slug)}`;
   return "/";
+}
+
+function updateHeader(route) {
+  const hasBack = !["home", "game"].includes(route);
+  $("#siteHeader")?.classList.toggle("has-back", hasBack);
+  const backButton = $("#headerBackButton");
+  if (backButton) backButton.hidden = !hasBack;
+}
+
+function goBackFromHeader() {
+  if (state.route === "lobby") return navigate("game-landing");
+  navigate("home");
 }
 
 function routeFromPath(pathname = location.pathname) {
@@ -874,6 +886,7 @@ function navigate(route, { fromHistory = false, replace = false } = {}) {
   $$(".view").forEach((view) => view.classList.toggle("is-active", view.dataset.view === route));
   $$(".bottom-nav [data-route]").forEach((button) => button.classList.toggle("is-active", button.dataset.route === route));
   document.body.classList.toggle("game-mode", route === "game");
+  updateHeader(route);
   closeDrawer();
   window.scrollTo({ top: 0, behavior: "smooth" });
   if (route === "lobby") { renderLobby(); startLobbyPolling(); }
@@ -1875,6 +1888,10 @@ async function handleBluffAction(action) {
 
 function bindEvents() {
   document.addEventListener("click", (event) => {
+    if (event.target.closest("#headerBackButton")) {
+      goBackFromHeader();
+      return;
+    }
     const bluffCard = event.target.closest("[data-bluff-card]");
     if (bluffCard) {
       state.bluffSelectedCard = bluffCard.dataset.bluffCard;
