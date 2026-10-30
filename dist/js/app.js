@@ -6,7 +6,7 @@ import {
   resetForNight,
   startDay,
   startVote,
-} from "./state.js?v=34";
+} from "./state.js?v=35";
 import { roomChat } from "./services/room-chat.js?v=20";
 import { liveKitVoice } from "./services/livekit-voice.js?v=21";
 import { gameAudio } from "./services/game-audio.js?v=23";
@@ -62,7 +62,7 @@ const escapeHtml = (value) => String(value)
   .replaceAll("'", "&#039;");
 
 const avatarPalettes = [
-  ["#8f5cff", "#f5cf4d"], ["#ff526d", "#5ce0bd"], ["#3b8bff", "#f5cf4d"], ["#b76cff", "#ff8d68"], ["#2fb998", "#e9f0ff"],
+  ["#8f3fc4", "#e9b94f"], ["#ff526d", "#5ce0bd"], ["#3b8bff", "#e9b94f"], ["#b76cff", "#ff8d68"], ["#2fb998", "#e9f0ff"],
   ["#f5a623", "#4d2f74"], ["#ff6b9a", "#291b45"], ["#50a7ff", "#101c42"], ["#7ed957", "#342053"], ["#e45cff", "#ffe174"],
 ];
 

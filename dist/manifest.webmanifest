@@ -6,8 +6,8 @@
   "dir": "rtl",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#09060f",
-  "theme_color": "#0c0814",
+  "background_color": "#10031c",
+  "theme_color": "#160626",
   "icons": [
     {
       "src": "/assets/mark.svg",
