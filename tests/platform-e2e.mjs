@@ -54,6 +54,12 @@ async function main() {
   const anonymous = new Client("anonymous");
   const health = await anonymous.request("/api/health");
   assert.equal(health.ok, true);
+  const home = await anonymous.request("/", { text: true });
+  assert.match(home, /class="app-download"/);
+  assert.match(home, /iOS · App Store/);
+  assert.match(home, /Android · Google Play/);
+  assert.doesNotMatch(home, /class="how-grid"/);
+  assert.match(home, /class="game-guide"/);
   const games = await anonymous.request("/api/games");
   assert.equal(games.games.length, 3);
   const robots = await anonymous.request("/robots.txt", { text: true });

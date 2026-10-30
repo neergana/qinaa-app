@@ -6,7 +6,7 @@ import {
   resetForNight,
   startDay,
   startVote,
-} from "./state.js?v=33";
+} from "./state.js?v=34";
 import { roomChat } from "./services/room-chat.js?v=20";
 import { liveKitVoice } from "./services/livekit-voice.js?v=21";
 import { gameAudio } from "./services/game-audio.js?v=23";

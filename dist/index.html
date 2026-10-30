@@ -15,7 +15,7 @@
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" href="/assets/mark.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="/styles.css?v=33" />
+    <link rel="stylesheet" href="/styles.css?v=34" />
   </head>
   <body>
     <div class="ambient ambient-one"></div>
@@ -66,26 +66,13 @@
             </div>
           </section>
 
-          <div class="section-heading">
-            <div><span>كيف تسير اللعبة؟</span><h2>ليلة تكشف الوجوه</h2></div>
-            <button class="icon-button mini" data-route="rules" type="button" aria-label="عرض القواعد">
-              <svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>
-            </button>
-          </div>
-          <div class="how-grid">
-            <article class="how-card">
-              <span class="step-icon purple"><svg viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8Z"/></svg></span>
-              <small>01</small><h3>يحلّ الليل</h3><p>تتحرك الأدوار سراً، ويتفق أفراد الظل على ضحيتهم.</p>
-            </article>
-            <article class="how-card">
-              <span class="step-icon yellow"><svg viewBox="0 0 24 24"><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6L7 7M17 17l1.4 1.4M18.4 5.6L17 7M7 17l-1.4 1.4"/><circle cx="12" cy="12" r="4"/></svg></span>
-              <small>02</small><h3>يستيقظ اللاعبون</h3><p>نقاش مفتوح، ثم طابور منظم لمن يريد الدفاع أو الاتهام.</p>
-            </article>
-            <article class="how-card">
-              <span class="step-icon red"><svg viewBox="0 0 24 24"><path d="M12 3v18M5 8h14M7 8l-3 6h6L7 8Zm10 0-3 6h6l-3-6Z"/></svg></span>
-              <small>03</small><h3>وقت الحكم</h3><p>تصويت مباشر وحاسم؛ النتائج تظهر، والهويات تبقى مستورة حتى الإغلاق.</p>
-            </article>
-          </div>
+          <section class="app-download" aria-labelledby="appDownloadTitle">
+            <div class="app-download-copy"><span>تطبيق قِناع</span><h2 id="appDownloadTitle">حمّل اللعبة على هاتفك</h2><p>تجربة قِناع الكاملة على iOS وAndroid قيد الإعداد.</p></div>
+            <div class="app-store-grid">
+              <div class="app-store-badge" aria-disabled="true"><span class="store-icon apple" aria-hidden="true">iOS</span><div><small>قريباً على</small><strong>iOS · App Store</strong></div><b>قريباً</b></div>
+              <div class="app-store-badge" aria-disabled="true"><span class="store-icon android" aria-hidden="true">A</span><div><small>قريباً على</small><strong>Android · Google Play</strong></div><b>قريباً</b></div>
+            </div>
+          </section>
           <footer class="home-footer">
             <span>qinaaapp.com</span>
             <nav aria-label="روابط قانونية"><a href="/privacypolicy">الخصوصية</a><a href="/terms">الشروط</a></nav>
@@ -106,7 +93,10 @@
             </div>
             <button class="text-link" id="watchLiveRoomButton" type="button" hidden>مشاهدة غرفة مباشرة بلا حساب <span>←</span></button>
           </div>
-          <section class="game-rules-preview" id="gameRulesPreview"></section>
+          <section class="game-guide" aria-labelledby="gameGuideTitle">
+            <div class="section-heading"><div><span>القواعد الأساسية</span><h2 id="gameGuideTitle">كيف تسير اللعبة؟</h2></div></div>
+            <div class="game-rules-preview" id="gameRulesPreview"></div>
+          </section>
           <section class="rooms-section" aria-labelledby="roomsTitle">
             <div class="section-heading rooms-heading"><div><span>ادخل الآن</span><h2 id="roomsTitle">الغرف المفتوحة</h2></div><b class="live-rooms-count"><i></i><span id="liveRoomsCount">0 غرف</span></b></div>
             <p class="rooms-lede">شاهد أي غرفة عامة فوراً ومن دون حساب، أو سجّل حساب لاعب للانضمام إلى الجولة.</p>
@@ -356,6 +346,6 @@
       <div id="toast" class="toast" role="status" aria-live="polite"></div>
     </div>
 
-    <script type="module" src="/js/app.js?v=33"></script>
+    <script type="module" src="/js/app.js?v=34"></script>
   </body>
 </html>
