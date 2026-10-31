@@ -6,7 +6,7 @@ import {
   resetForNight,
   startDay,
   startVote,
-} from "./state.js?v=37";
+} from "./state.js?v=38";
 import { roomChat } from "./services/room-chat.js?v=20";
 import { liveKitVoice } from "./services/livekit-voice.js?v=21";
 import { gameAudio } from "./services/game-audio.js?v=23";
@@ -1202,14 +1202,66 @@ function bluffPublicTransit(game, sender, receiver) {
   return `${bluffActionTimer(game)}<div class="bluff-hidden-card">${bluffCardBack()}</div><p>${escapeHtml(status)}</p>`;
 }
 
+function bluffSeatLayout(count) {
+  const layouts = {
+    3: [[50, 88], [82, 24], [18, 24]],
+    4: [[50, 88], [84, 48], [50, 11], [16, 48]],
+    5: [[50, 88], [84, 65], [77, 15], [23, 15], [16, 65]],
+  };
+  return layouts[count] || layouts[5];
+}
+
+function bluffOrderedPlayers(game) {
+  const players = [...game.players];
+  const anchorId = game.me?.id || game.currentPlayerId || players[0]?.id;
+  const anchorIndex = Math.max(0, players.findIndex((player) => player.id === anchorId));
+  return [...players.slice(anchorIndex), ...players.slice(0, anchorIndex)];
+}
+
+function bluffTableCenter(game) {
+  const current = bluffPlayer(game.currentPlayerId);
+  const sender = bluffPlayer(game.senderId);
+  const receiver = bluffPlayer(game.receiverId);
+  let eyebrow = `الجولة ${game.round || 1}`;
+  let title = current ? `الدور عند ${current.name}` : "بطاقة الخداع";
+
+  if (game.phase === "respond") {
+    eyebrow = `${sender?.name || "المرسل"} مرّر بطاقة`;
+    title = `يدّعي: ${game.claim?.name || "نوع مخفي"}`;
+  } else if (game.phase === "pass") {
+    eyebrow = `${receiver?.name || "المستلم"} شاهد البطاقة`;
+    title = "البطاقة ما زالت سرية";
+  } else if (game.phase === "results") {
+    eyebrow = "انتهت الجولة";
+    title = "كُشف آخر ادعاء";
+  }
+
+  return `<div class="bluff-table-center ${["respond", "pass"].includes(game.phase) ? "has-live-card" : ""}">
+    <div class="bluff-center-card">${["respond", "pass"].includes(game.phase) ? bluffCardBack() : '<div class="bluff-deck-stack"><i></i><i></i><i></i><b>قِناع</b></div>'}</div>
+    <small>${escapeHtml(eyebrow)}</small><strong>${escapeHtml(title)}</strong>
+  </div>`;
+}
+
 function bluffPlayersTemplate(game) {
-  return `<section class="bluff-players"><div class="bluff-table-center"><span>بطاقة الخداع</span><strong>${game.players.filter((player) => !player.eliminated).length}</strong><small>لاعبين مستمرين</small></div><div class="bluff-player-grid">${game.players.map((player) => {
+  const players = bluffOrderedPlayers(game);
+  const positions = bluffSeatLayout(players.length);
+  const activeCount = players.filter((player) => !player.eliminated).length;
+  return `<section class="bluff-players players-${players.length}">
+    <header class="bluff-table-heading"><div><small>الجولة ${game.round || 1}</small><strong>طاولة بطاقة الخداع</strong></div><span>${activeCount} لاعبين مستمرين</span></header>
+    <div class="bluff-table-surface">${bluffTableCenter(game)}</div>
+    <div class="bluff-player-grid">${players.map((player, index) => {
     const speaking = state.activeSpeakers.includes(player.id);
     const current = player.id === game.currentPlayerId || player.id === game.receiverId;
     const penalties = player.penalties || [];
-    return `<article class="bluff-player ${current ? "is-current" : ""} ${player.eliminated ? "is-eliminated" : ""} ${speaking ? "is-speaking" : ""}">
-      <div class="bluff-player-head">${profileAvatar(player, "avatar")}<div><strong>${escapeHtml(player.name)}</strong><small>${player.eliminated ? `المركز ${player.placement || "—"}` : `${player.handCount} بطاقة في اليد`}</small></div><span class="bluff-mic">${speaking ? ")))" : state.voiceParticipants.some((voice) => voice.identity === player.id && voice.microphoneOn) ? "•" : "×"}</span></div>
-      <div class="bluff-floor-cards"><b>${penalties.length ? `${player.penaltyCount} أمامه` : "لا عقوبات أمامه"}</b>${penalties.map((penalty) => `<span style="--floor-color:${escapeHtml(penalty.color)}"><i></i>${escapeHtml(penalty.name)} <strong>×${penalty.count}</strong></span>`).join("")}</div>
+    const voice = state.voiceParticipants.find((participant) => participant.identity === player.id);
+    const [seatX, seatY] = positions[index] || positions[0];
+    return `<article class="bluff-player seat-${index} ${index === 0 ? "seat-bottom" : ""} ${current ? "is-current" : ""} ${player.eliminated ? "is-eliminated" : ""} ${speaking ? "is-speaking" : ""}" style="--seat-x:${seatX}%;--seat-y:${seatY}%">
+      <div class="bluff-player-head">${profileAvatar(player, "avatar")}<div><strong>${escapeHtml(player.name)}${player.id === game.me?.id ? " · أنت" : ""}</strong><small>${player.eliminated ? `المركز ${player.placement || "—"}` : current ? "دوره الآن" : `${player.handCount} في اليد`}</small></div><span class="bluff-mic ${speaking ? "is-live" : ""}" title="${speaking ? "يتكلم الآن" : voice?.microphoneOn ? "الميكروفون مفتوح" : "الميكروفون مغلق"}">${speaking ? ")))" : voice?.microphoneOn ? "•" : "×"}</span></div>
+      <div class="bluff-hand-stack" aria-label="${player.handCount} بطاقة في اليد"><i></i><i></i><i></i><b>${player.handCount}</b></div>
+      <div class="bluff-floor-cards">${penalties.length ? penalties.map((penalty) => {
+        const type = game.cardTypes.find((item) => item.id === penalty.type) || {};
+        return `<span style="--floor-color:${escapeHtml(penalty.color)}" title="${escapeHtml(penalty.name)}"><i>${escapeHtml(type.symbol || "◆")}</i><strong>×${penalty.count}</strong></span>`;
+      }).join("") : '<small>لا عقوبات</small>'}</div>
     </article>`;
   }).join("")}</div></section>`;
 }
