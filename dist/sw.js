@@ -1,10 +1,10 @@
-const CACHE_NAME = "qinaa-v38";
+const CACHE_NAME = "qinaa-v39";
 const APP_SHELL = [
   "/",
   "/index.html",
-  "/styles.css?v=38",
-  "/js/app.js?v=38",
-  "/js/state.js?v=38",
+  "/styles.css?v=39",
+  "/js/app.js?v=39",
+  "/js/state.js?v=39",
   "/js/services/room-chat.js?v=20",
   "/js/services/livekit-voice.js?v=21",
   "/js/services/game-audio.js?v=23",

@@ -1896,7 +1896,10 @@ export default {
       if (gamePageMatch && method === "GET") return serveGameSeoPage(request, env, gamePageMatch[1].toLowerCase());
       if (url.pathname === "/robots.txt" && method === "GET") return new Response(`User-agent: *\nAllow: /\nDisallow: /admindash\nDisallow: /api\nSitemap: ${url.origin}/sitemap.xml\n`, { headers: { "Content-Type": "text/plain; charset=UTF-8", "Cache-Control": "public, max-age=3600" } });
       if (url.pathname === "/sitemap.xml" && method === "GET") return serveSitemap(request, env);
-      if (url.pathname === "/api/health") return json({ ok: true, service: "qinaa", database: "d1", chat: "durable-object" });
+      if (url.pathname === "/api/health") {
+        if (method !== "GET") return json({ error: "هذا المسار يقبل طلب GET فقط." }, 405, { Allow: "GET" });
+        return json({ ok: true, service: "qinaa", database: "d1", chat: "durable-object" });
+      }
       if (url.pathname === "/api/site/config" && method === "GET") return json(await siteConfig(env));
       if (url.pathname === "/api/games" && method === "GET") return json({ games: await listGamePages(env) });
       if (url.pathname.startsWith("/api/admin/")) {
@@ -2015,6 +2018,7 @@ export default {
         if (!room) return json({ error: "رمز الغرفة مطلوب." }, 400);
         return roomChatStub(env, room).fetch(request);
       }
+      if (url.pathname.startsWith("/api/")) return json({ error: "مسار API غير موجود." }, 404);
       return env.ASSETS.fetch(request);
     } catch (error) {
       console.error(error);

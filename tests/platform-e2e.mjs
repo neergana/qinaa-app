@@ -54,10 +54,16 @@ async function main() {
   const anonymous = new Client("anonymous");
   const health = await anonymous.request("/api/health");
   assert.equal(health.ok, true);
+  await anonymous.request("/api/health", { method: "POST", expected: 405, body: {} });
+  await anonymous.request("/api/not-a-route", { expected: 404 });
   const home = await anonymous.request("/", { text: true });
   assert.match(home, /class="app-download"/);
   assert.match(home, /iOS · App Store/);
   assert.match(home, /Android · Google Play/);
+  assert.match(home, /store-icon apple[^>]*><svg/);
+  assert.match(home, /store-icon android[^>]*><svg/);
+  assert.doesNotMatch(home, /store-icon apple[^>]*>iOS/);
+  assert.doesNotMatch(home, /store-icon android[^>]*>A</);
   assert.doesNotMatch(home, /class="how-grid"/);
   assert.match(home, /class="game-guide"/);
   const games = await anonymous.request("/api/games");
