@@ -929,17 +929,17 @@ async function maybeFinalizeImposter(env, context) {
 async function imposterState(request, env, code) {
   let context = await activeImposterContext(env, code);
   if (!context || context.ended_at || !context.phase) return json({ error: "لم تبدأ جولة الدخيل بعد." }, 409);
+  const user = await getUser(request, env);
+  const assignment = user ? await env.DB.prepare("SELECT * FROM imposter_assignments WHERE round_id = ? AND user_id = ? LIMIT 1").bind(context.round_id, user.id).first() : null;
+  if (context.is_private && !assignment) return json({ error: "هذه الغرفة خاصة." }, 403);
   context = await runImposterBotActions(env, context);
   context = await activeImposterContext(env, code);
   context = await maybeFinalizeImposter(env, context);
-  const user = await getUser(request, env);
   const members = await env.DB.prepare(`
     SELECT u.id, u.display_name, u.avatar_type, u.avatar_value, CASE WHEN r.host_user_id = u.id THEN 1 ELSE 0 END AS is_host
     FROM room_members m JOIN users u ON u.id = m.user_id JOIN rooms r ON r.id = m.room_id
     WHERE m.room_id = ? ORDER BY m.joined_at
   `).bind(context.room_id).all();
-  const assignment = user ? await env.DB.prepare("SELECT * FROM imposter_assignments WHERE round_id = ? AND user_id = ? LIMIT 1").bind(context.round_id, user.id).first() : null;
-  if (context.is_private && !assignment) return json({ error: "هذه الغرفة خاصة." }, 403);
   const ballot = user ? await env.DB.prepare("SELECT selections_json, confirmed_at FROM imposter_ballots WHERE round_id = ? AND voter_user_id = ? LIMIT 1").bind(context.round_id, user.id).first() : null;
   const order = JSON.parse(context.question_order || "[]");
   const askerId = order.length ? order[Number(context.current_index || 0) % order.length] : null;
@@ -1329,10 +1329,10 @@ async function runBluffAutomaticActions(env, context) {
 async function bluffState(request, env, code) {
   let context = await activeBluffContext(env, code);
   if (!context || context.ended_at || !context.phase) return json({ error: "لم تبدأ جولة بطاقة الخداع بعد." }, 409);
-  context = await runBluffAutomaticActions(env, context);
   const user = await getUser(request, env);
   const assignment = user ? await env.DB.prepare("SELECT * FROM bluff_players WHERE round_id = ? AND user_id = ?").bind(context.round_id, user.id).first() : null;
   if (context.is_private && !assignment) return json({ error: "هذه الغرفة خاصة." }, 403);
+  context = await runBluffAutomaticActions(env, context);
   const players = await env.DB.prepare(`
     SELECT u.id, u.display_name, u.avatar_type, u.avatar_value, p.eliminated_at, p.placement,
       CASE WHEN r.host_user_id = u.id THEN 1 ELSE 0 END AS is_host,

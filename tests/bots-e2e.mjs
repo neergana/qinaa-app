@@ -35,15 +35,17 @@ class Client {
 
 const step = (message) => process.stdout.write(`✓ ${message}\n`);
 
-async function testImposter(host) {
-  const created = await host.request("/api/rooms", { method: "POST", expected: 201, body: { gameType: "imposter" } });
+async function testImposter(host, outsider) {
+  const created = await host.request("/api/rooms", { method: "POST", expected: 201, body: { gameType: "imposter", private: true } });
   const code = created.room.code;
   const started = await host.request(`/api/rooms/${code}/start`, { method: "POST", body: {} });
   assert.equal(started.botsAdded, 3);
+  await outsider.request(`/api/rooms/${code}/imposter`, { expected: 403 });
   let state = await host.request(`/api/rooms/${code}/imposter`);
   assert.equal(state.players.length, 4);
   assert.equal(state.players.filter((player) => player.id.startsWith("qinaa-bot-")).length, 3);
   await host.request(`/api/rooms/${code}/imposter/ready`, { method: "POST", body: {} });
+  await outsider.request(`/api/rooms/${code}/imposter`, { expected: 403 });
 
   for (let guard = 0; guard < 20; guard += 1) {
     state = await host.request(`/api/rooms/${code}/imposter`);
@@ -69,11 +71,12 @@ async function testImposter(host) {
   step("الدخيل يبدأ بلاعب واحد، والروبوتات تكمل الأسئلة والتصويت والنتيجة");
 }
 
-async function testBluff(host) {
-  const created = await host.request("/api/rooms", { method: "POST", expected: 201, body: { gameType: "bluff" } });
+async function testBluff(host, outsider) {
+  const created = await host.request("/api/rooms", { method: "POST", expected: 201, body: { gameType: "bluff", private: true } });
   const code = created.room.code;
   const started = await host.request(`/api/rooms/${code}/start`, { method: "POST", body: {} });
   assert.equal(started.botsAdded, 2);
+  await outsider.request(`/api/rooms/${code}/bluff`, { expected: 403 });
   let state = await host.request(`/api/rooms/${code}/bluff`);
   assert.equal(state.players.length, 3);
   assert.equal(state.players.filter((player) => player.bot).length, 2);
@@ -105,9 +108,10 @@ async function testBluff(host) {
 
 async function main() {
   const host = new Client();
+  const outsider = new Client();
   await host.register();
-  await testImposter(host);
-  await testBluff(host);
+  await testImposter(host, outsider);
+  await testBluff(host, outsider);
   process.stdout.write("\nBOT E2E PASS\n");
 }
 
