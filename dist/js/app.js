@@ -7,7 +7,7 @@ import {
   startDay,
   startVote,
 } from "./state.js?v=40";
-import { roomChat } from "./services/room-chat.js?v=20";
+import { roomChat } from "./services/room-chat.js?v=40";
 import { liveKitVoice } from "./services/livekit-voice.js?v=21";
 import { gameAudio } from "./services/game-audio.js?v=23";
 

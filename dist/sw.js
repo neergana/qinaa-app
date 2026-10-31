@@ -5,7 +5,7 @@ const APP_SHELL = [
   "/styles.css?v=40",
   "/js/app.js?v=40",
   "/js/state.js?v=40",
-  "/js/services/room-chat.js?v=20",
+  "/js/services/room-chat.js?v=40",
   "/js/services/livekit-voice.js?v=21",
   "/js/services/game-audio.js?v=23",
   "/assets/mark.svg",
