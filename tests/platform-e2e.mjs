@@ -56,6 +56,9 @@ async function main() {
   assert.equal(health.ok, true);
   await anonymous.request("/api/health", { method: "POST", expected: 405, body: {} });
   await anonymous.request("/api/not-a-route", { expected: 404 });
+  const malformedCookieResponse = await fetch(`${baseUrl}/api/auth/me`, { headers: { Cookie: "broken=%; missing-value" } });
+  assert.equal(malformedCookieResponse.status, 200);
+  assert.equal((await malformedCookieResponse.json()).user, null);
   const home = await anonymous.request("/", { text: true });
   assert.match(home, /class="app-download"/);
   assert.match(home, /iOS · App Store/);

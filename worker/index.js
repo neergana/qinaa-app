@@ -83,10 +83,16 @@ function json(data, status = 200, headers = {}) {
 }
 
 function parseCookies(request) {
-  return Object.fromEntries((request.headers.get("Cookie") || "").split(";").map((part) => part.trim()).filter(Boolean).map((part) => {
+  const cookies = {};
+  for (const rawPart of (request.headers.get("Cookie") || "").split(";")) {
+    const part = rawPart.trim();
     const index = part.indexOf("=");
-    return [decodeURIComponent(part.slice(0, index)), decodeURIComponent(part.slice(index + 1))];
-  }));
+    if (index <= 0) continue;
+    try {
+      cookies[decodeURIComponent(part.slice(0, index))] = decodeURIComponent(part.slice(index + 1));
+    } catch (_) { /* Ignore malformed cookies instead of failing the whole request. */ }
+  }
+  return cookies;
 }
 
 function base64Url(bytes) {
@@ -207,7 +213,7 @@ async function createSession(userId, request, env) {
 
 function safeReturnPath(value) {
   const path = clean(value, "/", 120);
-  return path.startsWith("/") && !path.startsWith("//") ? path : "/";
+  return path.startsWith("/") && !path.startsWith("//") && !path.includes("\\") ? path : "/";
 }
 
 function bootstrapAdminEmails(env) {
@@ -1869,6 +1875,21 @@ export class RoomChat {
     let incoming;
     try { incoming = JSON.parse(typeof raw === "string" ? raw : new TextDecoder().decode(raw)); } catch (_) { return ws.send(JSON.stringify({ type: "error", message: "تعذر قراءة الرسالة." })); }
     if (incoming.type !== "message") return;
+    const membership = await this.env.DB.prepare(`
+      SELECT m.role, m.alive, u.display_name FROM room_members m
+      JOIN users u ON u.id = m.user_id JOIN rounds rd ON rd.id = m.round_id
+      WHERE m.room_id = ? AND m.round_id = ? AND m.user_id = ? AND rd.status = 'active' LIMIT 1
+    `).bind(attachment.roomId, attachment.roundId, attachment.userId).first();
+    if (!membership) {
+      attachment.canSend = false;
+      ws.serializeAttachment(attachment);
+      return ws.send(JSON.stringify({ type: "error", message: "غادرت الغرفة ولم يعد بإمكانك الكتابة فيها." }));
+    }
+    attachment.name = membership.display_name;
+    attachment.initial = membership.display_name.charAt(0);
+    attachment.allowedChannels = ["public"];
+    if (membership.role === "أفراد الظل") attachment.allowedChannels.push("mafia");
+    if (!membership.alive) attachment.allowedChannels.push("dead");
     const channel = ["public", "mafia", "dead"].includes(incoming.channel) ? incoming.channel : "public";
     if (!attachment.allowedChannels.includes(channel)) return ws.send(JSON.stringify({ type: "error", message: "هذه القناة غير متاحة لدورك." }));
     const body = clean(incoming.body, "", MAX_MESSAGE_LENGTH);

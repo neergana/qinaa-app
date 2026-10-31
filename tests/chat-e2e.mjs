@@ -133,6 +133,13 @@ async function main() {
   assert.ok(restored.histories.public.some((message) => message.body === body));
   step("سجل الرسائل يرجع بعد إعادة الاتصال");
 
+  await guest.request(`/api/rooms/${code}/leave`, { method: "DELETE" });
+  await new Promise((resolve) => setTimeout(resolve, 380));
+  guestSocket.send({ type: "message", channel: "public", body: "رسالة بعد المغادرة" });
+  const departed = await guestSocket.wait((item) => item.type === "error" && /غادرت الغرفة/.test(item.message), "departed member rejection");
+  assert.match(departed.message, /لم يعد بإمكانك الكتابة/);
+  step("اتصال اللاعب القديم يتوقف عن الكتابة فور مغادرته الغرفة");
+
   const endedPromises = [hostSocket, guestSocket, spectatorSocket, reconnect].map((socket) => socket.wait((item) => item.type === "round-ended", "round end"));
   await host.request(`/api/rooms/${code}/end`, { method: "POST" });
   await Promise.all(endedPromises);
