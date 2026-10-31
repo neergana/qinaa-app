@@ -34,6 +34,10 @@ class RoomChatClient extends EventTarget {
         if (payload.type === "error") this.dispatchEvent(new CustomEvent("chat-error", { detail: payload.message }));
         if (payload.type === "game-sync") this.dispatchEvent(new CustomEvent("game-sync", { detail: payload }));
         if (payload.type === "round-ended") this.dispatchEvent(new CustomEvent("round-ended"));
+        if (payload.type === "membership-ended") {
+          this.shouldReconnect = false;
+          this.dispatchEvent(new CustomEvent("membership-ended"));
+        }
       } catch (_) {
         this.dispatchEvent(new CustomEvent("chat-error", { detail: "وصلت رسالة غير صالحة من الخادم." }));
       }

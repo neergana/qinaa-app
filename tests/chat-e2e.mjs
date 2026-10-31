@@ -81,22 +81,29 @@ const step = (message) => process.stdout.write(`✓ ${message}\n`);
 async function main() {
   const host = new Client("host");
   const guest = new Client("guest");
-  await Promise.all([host.register(1), guest.register(2)]);
+  const third = new Client("third");
+  await Promise.all([host.register(1), guest.register(2), third.register(3)]);
   const created = await host.request("/api/rooms", { method: "POST", expected: 201, body: { gameType: "mafia", private: false } });
   const code = created.room.code;
-  await guest.request(`/api/rooms/${code}/join`, { method: "POST" });
+  await Promise.all([
+    guest.request(`/api/rooms/${code}/join`, { method: "POST" }),
+    third.request(`/api/rooms/${code}/join`, { method: "POST" }),
+  ]);
   await host.request(`/api/rooms/${code}/start`, { method: "POST", body: {} });
 
   const hostSocket = new SocketInbox(host.cookie, code);
   const guestSocket = new SocketInbox(guest.cookie, code);
+  const thirdSocket = new SocketInbox(third.cookie, code);
   const spectatorSocket = new SocketInbox("", code);
-  const [hostHistory, guestHistory, spectatorHistory] = await Promise.all([
+  const [hostHistory, guestHistory, thirdHistory, spectatorHistory] = await Promise.all([
     hostSocket.wait((item) => item.type === "histories", "host history"),
     guestSocket.wait((item) => item.type === "histories", "guest history"),
+    thirdSocket.wait((item) => item.type === "histories", "third history"),
     spectatorSocket.wait((item) => item.type === "histories", "spectator history"),
   ]);
   assert.equal(hostHistory.readOnly, false);
   assert.equal(guestHistory.readOnly, false);
+  assert.equal(thirdHistory.readOnly, false);
   assert.equal(spectatorHistory.readOnly, true);
   step("اللاعبون يكتبون والمشاهد يدخل بوضع القراءة فقط");
 
@@ -133,20 +140,23 @@ async function main() {
   assert.ok(restored.histories.public.some((message) => message.body === body));
   step("سجل الرسائل يرجع بعد إعادة الاتصال");
 
+  const membershipEnded = guestSocket.wait((item) => item.type === "membership-ended", "departed member disconnect");
   await guest.request(`/api/rooms/${code}/leave`, { method: "DELETE" });
-  await new Promise((resolve) => setTimeout(resolve, 380));
-  guestSocket.send({ type: "message", channel: "public", body: "رسالة بعد المغادرة" });
-  const departed = await guestSocket.wait((item) => item.type === "error" && /غادرت الغرفة/.test(item.message), "departed member rejection");
-  assert.match(departed.message, /لم يعد بإمكانك الكتابة/);
-  step("اتصال اللاعب القديم يتوقف عن الكتابة فور مغادرته الغرفة");
+  await membershipEnded;
+  step("اتصال اللاعب القديم يُغلق فور مغادرته الغرفة");
 
-  const endedPromises = [hostSocket, guestSocket, spectatorSocket, reconnect].map((socket) => socket.wait((item) => item.type === "round-ended", "round end"));
+  const kickedEnded = thirdSocket.wait((item) => item.type === "membership-ended", "kicked member disconnect");
+  await host.request(`/api/rooms/${code}/members/${third.user.id}`, { method: "DELETE" });
+  await kickedEnded;
+  step("اتصال اللاعب المطرد يُغلق فوراً ولا يبقى متابعاً للمحادثة");
+
+  const endedPromises = [hostSocket, spectatorSocket, reconnect].map((socket) => socket.wait((item) => item.type === "round-ended", "round end"));
   await host.request(`/api/rooms/${code}/end`, { method: "POST" });
   await Promise.all(endedPromises);
   await host.request(`/api/rooms/${code}`, { expected: 410 });
   step("نهاية الجولة تغلق المحادثة والرابط");
 
-  [hostSocket, guestSocket, spectatorSocket, reconnect].forEach((socket) => socket.close());
+  [hostSocket, guestSocket, thirdSocket, spectatorSocket, reconnect].forEach((socket) => socket.close());
   process.stdout.write("\nCHAT E2E PASS\n");
 }
 

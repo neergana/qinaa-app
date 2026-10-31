@@ -6,7 +6,7 @@ import {
   resetForNight,
   startDay,
   startVote,
-} from "./state.js?v=39";
+} from "./state.js?v=40";
 import { roomChat } from "./services/room-chat.js?v=20";
 import { liveKitVoice } from "./services/livekit-voice.js?v=21";
 import { gameAudio } from "./services/game-audio.js?v=23";
@@ -2400,6 +2400,12 @@ function bindEvents() {
     navigate("home", { replace: true });
     await loadRooms();
     showToast("انتهت الجولة، رجعناك للرئيسية");
+  });
+  roomChat.addEventListener("membership-ended", async () => {
+    state.messages = { public: [], mafia: [], dead: [] };
+    navigate("home", { replace: true });
+    await loadRooms();
+    showToast("غادرت الغرفة، رجعناك للرئيسية");
   });
 
   window.addEventListener("popstate", async () => {

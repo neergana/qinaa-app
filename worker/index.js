@@ -562,6 +562,18 @@ function roomChatStub(env, roomName) {
   return env.ROOM_CHAT.get(id);
 }
 
+async function disconnectRoomMember(env, code, userId) {
+  try {
+    await roomChatStub(env, code).fetch(new Request("https://qinaa.internal/internal/member-left", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId }),
+    }));
+  } catch (error) {
+    console.error(error);
+  }
+}
+
 async function notifyGameSync(env, code, phase, gameType = "imposter") {
   try {
     await roomChatStub(env, code).fetch(new Request("https://qinaa.internal/internal/game-sync", {
@@ -753,6 +765,7 @@ async function kickMember(env, code, user, targetUserId) {
   if (isBotId(targetUserId)) return json({ error: "لا يمكن إخراج روبوت أثناء الجولة." }, 400);
   const botReplacement = room.status === "playing" ? await replaceMemberWithBot(env, room, targetUserId) : null;
   if (!botReplacement) await env.DB.prepare("DELETE FROM room_members WHERE room_id = ? AND user_id = ?").bind(room.id, targetUserId).run();
+  await disconnectRoomMember(env, code, targetUserId);
   return json({ ok: true, botReplacement });
 }
 
@@ -775,6 +788,7 @@ async function leaveRoom(env, code, user) {
   if (room.host_user_id === user.id && nextHuman) {
     await env.DB.prepare("UPDATE rooms SET host_user_id = ? WHERE id = ?").bind(nextHuman.user_id, room.id).run();
   }
+  await disconnectRoomMember(env, code, user.id);
   return json({ left: true, botReplacement, newHostUserId: room.host_user_id === user.id ? nextHuman?.user_id || null : room.host_user_id });
 }
 
@@ -1815,6 +1829,20 @@ export class RoomChat {
       const payload = JSON.stringify({ type: "game-sync", gameType: input.gameType || "imposter", phase: input.phase || null });
       for (const socket of this.ctx.getWebSockets()) {
         try { socket.send(payload); } catch (_) { /* Ignore stale sockets. */ }
+      }
+      return json({ ok: true });
+    }
+    if (url.pathname === "/internal/member-left" && request.method === "POST") {
+      let input = {};
+      try { input = await request.json(); } catch (_) { return json({ error: "اللاعب غير صالح." }, 400); }
+      const userId = clean(input.userId, "", 80);
+      if (!userId) return json({ error: "اللاعب غير صالح." }, 400);
+      for (const socket of this.ctx.getWebSockets()) {
+        try {
+          if (socket.deserializeAttachment()?.userId !== userId) continue;
+          socket.send(JSON.stringify({ type: "membership-ended" }));
+          socket.close(1000, "membership-ended");
+        } catch (_) { /* Closing. */ }
       }
       return json({ ok: true });
     }
