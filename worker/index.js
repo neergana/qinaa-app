@@ -3,6 +3,8 @@ const SESSION_DAYS = 30;
 const AVATAR_PRESETS = new Set(Array.from({ length: 10 }, (_, index) => `mask-${String(index + 1).padStart(2, "0")}`));
 const BOT_NAMES = ["نادر", "سلمى", "مالك", "ليان", "ياسين", "مريم", "آدم", "نور", "سارة", "عمر", "هبة", "زياد", "رنا", "أيمن", "ندى", "أنس", "جنى", "سامي", "لمى", "كريم"];
 const GAME_TYPES = new Set(["mafia", "imposter", "bluff"]);
+const MAFIA_ROLE = "عضو المافيا";
+const LEGACY_MAFIA_ROLE = "أفراد الظل";
 const BLUFF_CARD_TYPES = [
   { id: "cockroach", name: "الصرصور", symbol: "▰", color: "#b9873f" },
   { id: "butterfly", name: "الفراشة", symbol: "✦", color: "#f39a3d" },
@@ -43,6 +45,10 @@ const encoder = new TextEncoder();
 function clean(value, fallback = "", max = 80) {
   const normalized = String(value || "").replace(/[<>\u0000-\u001f]/g, "").trim().slice(0, max);
   return normalized || fallback;
+}
+
+function isMafiaRole(role) {
+  return role === MAFIA_ROLE || role === LEGACY_MAFIA_ROLE;
 }
 
 function validBirthDate(value) {
@@ -864,7 +870,7 @@ async function leaveRoom(env, code, user) {
 
 function roleDeck(count, options = {}) {
   const shadowCount = count >= 16 ? 4 : count >= 12 ? 3 : count >= 8 ? 2 : 1;
-  const deck = Array(shadowCount).fill("أفراد الظل");
+  const deck = Array(shadowCount).fill(MAFIA_ROLE);
   if (count >= 5) deck.push("المُنقذ", "الشيخ");
   if (count >= 8 && deck.length < count) deck.push("الكشّاف");
   if (options.witch && deck.length < count) deck.push("الساحرة");
@@ -1586,14 +1592,15 @@ async function mafiaMembers(env, roomId) {
 
 function mafiaWinner(members) {
   const alive = members.filter((member) => member.alive);
-  const shadows = alive.filter((member) => member.role === "أفراد الظل").length;
+  const shadows = alive.filter((member) => isMafiaRole(member.role)).length;
   if (shadows === 0) return "innocents";
   if (shadows >= alive.length - shadows) return "shadows";
   return null;
 }
 
 function mafiaActionType(role) {
-  return ({ "أفراد الظل": "shadow", "المُنقذ": "protect", "الشيخ": "inspect", "الكشّاف": "scout" })[role] || null;
+  if (isMafiaRole(role)) return "shadow";
+  return ({ "المُنقذ": "protect", "الشيخ": "inspect", "الكشّاف": "scout" })[role] || null;
 }
 
 async function setMafiaPhase(env, context, phase, seconds, extraSql = "", bindings = []) {
@@ -1615,7 +1622,7 @@ async function runMafiaBotNightActions(env, context, members) {
       .bind(context.round_id, context.night_number, member.user_id, actionType).first();
     if (existing) continue;
     let candidates = alive.filter((entry) => entry.user_id !== member.user_id);
-    if (actionType === "shadow") candidates = candidates.filter((entry) => entry.role !== "أفراد الظل");
+    if (actionType === "shadow") candidates = candidates.filter((entry) => !isMafiaRole(entry.role));
     const shuffledCandidates = shuffled(candidates);
     const targets = actionType === "scout" ? shuffledCandidates.slice(0, 3).map((entry) => entry.user_id) : [];
     const target = actionType === "scout" ? null : shuffledCandidates[0]?.user_id || null;
@@ -1644,12 +1651,12 @@ async function resolveMafiaNight(env, context, members) {
     if (action.action_type === "inspect") {
       const target = members.find((member) => member.user_id === action.target_user_id);
       resultStatements.push(env.DB.prepare("INSERT OR REPLACE INTO mafia_role_results (round_id, night_number, user_id, result_json) VALUES (?, ?, ?, ?)")
-        .bind(context.round_id, context.night_number, action.user_id, JSON.stringify({ type: "inspect", targetUserId: action.target_user_id, shadow: target?.role === "أفراد الظل" })));
+        .bind(context.round_id, context.night_number, action.user_id, JSON.stringify({ type: "inspect", targetUserId: action.target_user_id, shadow: isMafiaRole(target?.role) })));
     } else if (action.action_type === "scout") {
       let ids = [];
       try { ids = JSON.parse(action.targets_json || "[]"); } catch (_) { ids = []; }
       resultStatements.push(env.DB.prepare("INSERT OR REPLACE INTO mafia_role_results (round_id, night_number, user_id, result_json) VALUES (?, ?, ?, ?)")
-        .bind(context.round_id, context.night_number, action.user_id, JSON.stringify({ type: "scout", targetUserIds: ids, shadow: ids.some((id) => members.find((member) => member.user_id === id)?.role === "أفراد الظل") })));
+        .bind(context.round_id, context.night_number, action.user_id, JSON.stringify({ type: "scout", targetUserIds: ids, shadow: ids.some((id) => isMafiaRole(members.find((member) => member.user_id === id)?.role)) })));
     }
   }
   const result = { type: "night", night: Number(context.night_number), victimId, protected: Boolean(victimId && protectedIds.has(victimId)), eliminatedId };
@@ -1767,7 +1774,7 @@ async function runMafiaAutomaticActions(env, initial) {
 
 async function mafiaState(request, env, code) {
   let context = await activeMafiaContext(env, code);
-  if (!context || context.ended_at || !context.phase) return json({ error: "لم تبدأ جولة أفراد الظل بعد." }, 409);
+  if (!context || context.ended_at || !context.phase) return json({ error: "لم تبدأ جولة المافيا بعد." }, 409);
   const user = await getUser(request, env);
   const membership = user ? await env.DB.prepare("SELECT role, alive FROM room_members WHERE room_id = ? AND user_id = ?").bind(context.room_id, user.id).first() : null;
   if (context.is_private && !membership) return json({ error: "هذه الغرفة خاصة." }, 403);
@@ -1793,7 +1800,7 @@ async function mafiaState(request, env, code) {
   const publicPlayers = members.map((member) => ({
     id: member.user_id, name: member.display_name, avatarType: member.avatar_type, avatarValue: member.avatar_value,
     alive: Boolean(member.alive), bot: isBotId(member.user_id),
-    role: context.phase === "results" || (membership && (member.user_id === user.id || (membership.role === "أفراد الظل" && member.role === "أفراد الظل"))) ? member.role : null,
+    role: context.phase === "results" || (membership && (member.user_id === user.id || (isMafiaRole(membership.role) && isMafiaRole(member.role)))) ? member.role : null,
   }));
   return json({
     gameType: "mafia", round: Number(context.number || 1), phase: context.phase, secondsRemaining, speakerSeconds,
@@ -1809,7 +1816,7 @@ async function mafiaState(request, env, code) {
 
 async function mafiaAction(request, env, code, user, actionName) {
   let context = await activeMafiaContext(env, code);
-  if (!context || context.ended_at || !context.phase) return json({ error: "جولة أفراد الظل غير متاحة." }, 409);
+  if (!context || context.ended_at || !context.phase) return json({ error: "جولة المافيا غير متاحة." }, 409);
   const member = await env.DB.prepare("SELECT role, alive FROM room_members WHERE room_id = ? AND user_id = ?").bind(context.room_id, user.id).first();
   if (!member) return json({ error: "المشاهد لا يستطيع تنفيذ هذه الحركة." }, 403);
   let input = {};
@@ -1832,7 +1839,7 @@ async function mafiaAction(request, env, code, user, actionName) {
     if (Number(valid.count || 0) !== selectedIds.length || selectedIds.includes(user.id)) return json({ error: "الاختيار غير صالح." }, 400);
     if (actionType === "shadow") {
       const shadowTarget = await env.DB.prepare("SELECT role FROM room_members WHERE room_id = ? AND user_id = ?").bind(context.room_id, targetId).first();
-      if (shadowTarget?.role === "أفراد الظل") return json({ error: "لا يمكن استهداف فرد من الظل." }, 400);
+      if (isMafiaRole(shadowTarget?.role)) return json({ error: "لا يمكن استهداف عضو من المافيا." }, 400);
     }
     await env.DB.prepare(`INSERT INTO mafia_night_actions (round_id, night_number, user_id, action_type, target_user_id, targets_json, confirmed_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)`)
@@ -1914,9 +1921,9 @@ async function startRoom(request, env, code, user) {
     env.DB.prepare("UPDATE rooms SET status = 'playing' WHERE id = ?").bind(room.id),
   ]);
   const myRole = deck[members.results.findIndex((member) => member.user_id === user.id)];
-  const partners = myRole === "أفراد الظل" ? (await env.DB.prepare(`
+  const partners = isMafiaRole(myRole) ? (await env.DB.prepare(`
     SELECT u.id, u.display_name AS name FROM room_members m JOIN users u ON u.id = m.user_id
-    WHERE m.room_id = ? AND m.user_id != ? AND m.role = 'أفراد الظل'
+    WHERE m.room_id = ? AND m.user_id != ? AND m.role IN ('عضو المافيا', 'أفراد الظل')
   `).bind(room.id, user.id).all()).results : [];
   await notifyGameSync(env, code, "reveal", "mafia");
   return json({ started: true, role: myRole, partners, botsAdded: botsAdded.length, phase: "reveal" });
@@ -1929,9 +1936,9 @@ async function myRoomState(env, code, user) {
   `).bind(code, user.id).first();
   if (!row || row.ended_at) return json({ error: "انتهت هذه الجولة.", ended: true }, 410);
   const room = await roomRecord(env, code);
-  const partners = row.role === "أفراد الظل" ? (await env.DB.prepare(`
+  const partners = isMafiaRole(row.role) ? (await env.DB.prepare(`
     SELECT u.id, u.display_name AS name FROM room_members m JOIN users u ON u.id = m.user_id
-    WHERE m.room_id = ? AND m.user_id != ? AND m.role = 'أفراد الظل'
+    WHERE m.room_id = ? AND m.user_id != ? AND m.role IN ('عضو المافيا', 'أفراد الظل')
   `).bind(room.id, user.id).all()).results : [];
   return json({ status: row.status, gameType: room.game_type || "mafia", role: row.role, alive: Boolean(row.alive), partners });
 }
@@ -1953,7 +1960,7 @@ async function createLiveKitToken(request, env) {
   const user = await getUser(request, env);
   const member = user ? await env.DB.prepare("SELECT role, alive FROM room_members WHERE room_id = ? AND user_id = ?").bind(room.room_id, user.id).first() : null;
   if (room.is_private && !member) return json({ error: "هذه الغرفة خاصة." }, 403);
-  if (channel === "shadow" && (!member || member.role !== "أفراد الظل" || !member.alive)) return json({ error: "قناة أفراد الظل غير متاحة لدورك." }, 403);
+  if (channel === "shadow" && (!member || !isMafiaRole(member.role) || !member.alive)) return json({ error: "قناة المافيا غير متاحة لدورك." }, 403);
 
   const spectator = !member;
   const canPublish = Boolean(member?.alive);
@@ -2319,7 +2326,7 @@ export class RoomChat {
     const member = user ? await this.env.DB.prepare("SELECT role, alive FROM room_members WHERE room_id = ? AND user_id = ?").bind(room.room_id, user.id).first() : null;
     if (room.is_private && !member) return json({ error: "هذه الغرفة خاصة." }, 403);
     const allowedChannels = ["public"];
-    if (member?.role === "أفراد الظل") allowedChannels.push("mafia");
+    if (isMafiaRole(member?.role)) allowedChannels.push("mafia");
     if (member && !member.alive) allowedChannels.push("dead");
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
@@ -2358,7 +2365,7 @@ export class RoomChat {
     attachment.name = membership.display_name;
     attachment.initial = membership.display_name.charAt(0);
     attachment.allowedChannels = ["public"];
-    if (membership.role === "أفراد الظل") attachment.allowedChannels.push("mafia");
+    if (isMafiaRole(membership.role)) attachment.allowedChannels.push("mafia");
     if (!membership.alive) attachment.allowedChannels.push("dead");
     const channel = ["public", "mafia", "dead"].includes(incoming.channel) ? incoming.channel : "public";
     if (!attachment.allowedChannels.includes(channel)) return ws.send(JSON.stringify({ type: "error", message: "هذه القناة غير متاحة لدورك." }));
@@ -2383,6 +2390,9 @@ export default {
     const url = new URL(request.url);
     const method = request.method;
     try {
+      if (method === "GET" && /^\/games\/afrad-alzil\/?$/i.test(url.pathname)) {
+        return new Response(null, { status: 301, headers: securityHeaders({ Location: `${url.origin}/games/mafia${url.search}` }) });
+      }
       const gamePageMatch = url.pathname.match(/^\/games\/([a-z0-9-]+)\/?$/i);
       if (gamePageMatch && method === "GET") return serveGameSeoPage(request, env, gamePageMatch[1].toLowerCase());
       if (url.pathname === "/robots.txt" && method === "GET") return new Response(`User-agent: *\nAllow: /\nDisallow: /admindash\nDisallow: /api\nSitemap: ${url.origin}/sitemap.xml\n`, { headers: { "Content-Type": "text/plain; charset=UTF-8", "Cache-Control": "public, max-age=3600" } });

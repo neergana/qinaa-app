@@ -127,13 +127,13 @@ async function main() {
 
   const hostRole = (await host.request(`/api/rooms/${code}/me`)).role;
   const guestRole = (await guest.request(`/api/rooms/${code}/me`)).role;
-  const ordinary = hostRole === "أفراد الظل" ? guestSocket : hostSocket;
-  assert.notEqual(hostRole === "أفراد الظل" && guestRole === "أفراد الظل", true);
+  const ordinary = hostRole === "عضو المافيا" ? guestSocket : hostSocket;
+  assert.notEqual(hostRole === "عضو المافيا" && guestRole === "عضو المافيا", true);
   await new Promise((resolve) => setTimeout(resolve, 380));
   ordinary.send({ type: "message", channel: "mafia", body: "قناة سرية ممنوعة" });
   const forbidden = await ordinary.wait((item) => item.type === "error" && /القناة/.test(item.message), "role channel rejection");
   assert.match(forbidden.message, /غير متاحة/);
-  step("قناة أفراد الظل محمية حسب الدور");
+  step("قناة المافيا محمية حسب الدور");
 
   const reconnect = new SocketInbox(host.cookie, code);
   const restored = await reconnect.wait((item) => item.type === "histories", "restored history");

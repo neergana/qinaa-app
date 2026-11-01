@@ -56,8 +56,8 @@
             <div class="section-heading"><div><span>ابدأ من هنا</span><h2 id="chooseGameTitle">اختر لعبتك</h2></div></div>
             <div class="game-choice-grid">
               <button class="game-choice-card mafia" data-open-game="mafia" type="button">
-                <span class="game-choice-icon">♛</span><small>5–20 لاعباً</small><h2>أفراد الظل</h2>
-                <p>أدوار سرية، ليل ونهار، نقاش وتصويت لكشف أفراد الظل.</p><b>اعرض اللعبة والغرف <i>←</i></b>
+                <span class="game-choice-icon">♛</span><small>5–20 لاعباً</small><h2>المافيا</h2>
+                <p>أدوار سرية، ليل ونهار، نقاش وتصويت لكشف أعضاء المافيا.</p><b>اعرض اللعبة والغرف <i>←</i></b>
               </button>
               <button class="game-choice-card imposter" data-open-game="imposter" type="button">
                 <span class="game-choice-icon">؟</span><small>4–18 لاعباً</small><h2>الدخيل</h2>
@@ -88,7 +88,7 @@
           <div class="game-landing-hero" id="gameLandingHero">
             <span class="game-landing-symbol" id="gameLandingSymbol">♛</span>
             <small id="gameLandingEyebrow">لعبة الأدوار والاستنتاج</small>
-            <h1 id="gameLandingTitle">أفراد الظل</h1>
+            <h1 id="gameLandingTitle">المافيا</h1>
             <p id="gameLandingDescription"></p>
             <div class="hero-actions">
               <button class="button button-primary button-large" id="createRoomButton" type="button"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>إنشاء غرفة</button>
@@ -139,7 +139,7 @@
 
           <div class="panel settings-panel">
             <div class="panel-heading"><h2 id="settingsTitle">إعدادات الجولة</h2><span id="settingsSubtitle">توزيع ذكي حسب العدد</span></div>
-            <div class="setting-row" data-mafia-setting><div class="setting-icon"><svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8ZM19 8v6M16 11h6"/></svg></div><div><strong>الأدوار الأساسية</strong><span>أفراد الظل · المُنقذ · الشيخ · الكشّاف · الأبرياء</span></div><b class="ready-tag">تلقائي</b></div>
+            <div class="setting-row" data-mafia-setting><div class="setting-icon"><svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8ZM19 8v6M16 11h6"/></svg></div><div><strong>الأدوار الأساسية</strong><span>أعضاء المافيا · المُنقذ · الشيخ · الكشّاف · الأبرياء</span></div><b class="ready-tag">تلقائي</b></div>
             <div class="setting-row" data-mafia-setting><div class="setting-icon"><svg viewBox="0 0 24 24"><path d="M20.8 4.6a5.5 5.5 0 00-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 00-7.8 7.8l1.1 1.1L12 21l7.7-7.5a5.5 5.5 0 001.1-8.9Z"/></svg></div><div><strong>الخطّابة</strong><span>رابطة القلوب · تربط لاعبين بمصير واحد</span></div><label class="switch"><input id="cupidToggle" type="checkbox"><span></span></label></div>
             <div class="setting-row" data-mafia-setting><div class="setting-icon"><svg viewBox="0 0 24 24"><path d="M9 3h6M10 3v5l-5.5 9.5A2.3 2.3 0 006.5 21h11a2.3 2.3 0 002-3.5L14 8V3M7 15h10"/></svg></div><div><strong>الساحرة</strong><span>حارسة الجرعات · إنقاذ وإقصاء</span></div><label class="switch"><input id="witchToggle" type="checkbox"><span></span></label></div>
             <div class="setting-row" data-mafia-setting><div class="setting-icon"><svg viewBox="0 0 24 24"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="2.5"/></svg></div><div><strong>عين الليل</strong><span>اسم مقترح · قدرة التجسس قيد الموازنة</span></div><b class="ready-tag">قيد الدراسة</b></div>
@@ -188,7 +188,7 @@
           <p class="page-lede">نسخة مختصرة للقواعد المعتمدة في هذا النموذج.</p>
           <div class="rules-list">
             <article><b>01</b><div><h2>الغرفة والأدوار</h2><p>من 5 إلى 20 لاعباً. المضيف لاعب بدور سري، ويحتفظ بإدارة الغرفة بعد موته. يتكيف التوزيع تلقائياً، ويمكن إضافة الخطّابة والساحرة.</p></div></article>
-            <article><b>02</b><div><h2>الليل</h2><p>قناة خاصة صوتاً ونصاً لأفراد الظل. يختار كل دور إجراءه ويؤكده بنفسه، وتنتقل المرحلة فور اكتمال جميع التأكيدات من دون انتظار المؤقت.</p></div></article>
+            <article><b>02</b><div><h2>الليل</h2><p>قناة خاصة صوتاً ونصاً لأعضاء المافيا. يختار كل دور إجراءه ويؤكده بنفسه، وتنتقل المرحلة فور اكتمال جميع التأكيدات من دون انتظار المؤقت.</p></div></article>
             <article><b>03</b><div><h2>النهار والكلام</h2><p>أربع دقائق للنقاش الحر. يبدأ أول طالب للكلام تلقائياً ثم ينتقل الدور حسب الطابور. المتحدث وحده ينهي مداخلته، ولا يستطيع المضيف قطعها.</p></div></article>
             <article><b>04</b><div><h2>التصويت والتعادل</h2><p>يختار كل لاعب ثم يؤكد صوته. يُقصى صاحب أعلى الأصوات مباشرةً. عند التعادل فقط، يدافع كل متعادل منفرداً حتى 90 ثانية ثم تُعاد عملية التصويت مرة واحدة.</p></div></article>
             <article><b>05</b><div><h2>بعد الإقصاء والعودة</h2><p>سجل التصويت محفوظ، واللاعبون الموتى ينتقلون إلى محادثة نصية فقط. عند انقطاع لاعب، يتولى الروبوت مكانه مؤقتاً حتى يعود.</p></div></article>
@@ -331,7 +331,7 @@
               <section class="role-face role-front">
                 <small>دورك السري</small>
                 <div class="role-symbol" id="roleSymbol">♛</div>
-                <h2 id="revealedRoleName">أفراد الظل</h2>
+                <h2 id="revealedRoleName">عضو المافيا</h2>
                 <p id="revealedRoleDescription"></p>
                 <div id="rolePartner"></div>
                 <span class="role-warning">لا تُرِ هذه البطاقة لأي لاعب آخر</span>
@@ -348,6 +348,6 @@
       <div id="toast" class="toast" role="status" aria-live="polite"></div>
     </div>
 
-    <script type="module" src="/js/app.js?v=41"></script>
+    <script type="module" src="/js/app.js?v=43"></script>
   </body>
 </html>

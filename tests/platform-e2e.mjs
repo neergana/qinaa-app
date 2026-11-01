@@ -74,10 +74,11 @@ async function main() {
   const robots = await anonymous.request("/robots.txt", { text: true });
   const sitemap = await anonymous.request("/sitemap.xml", { text: true });
   assert.match(robots, /sitemap\.xml/);
-  assert.match(sitemap, /afrad-alzil/);
+  assert.match(sitemap, /\/games\/mafia/);
   assert.match(sitemap, /aldakhil/);
   assert.match(sitemap, /bluff-card/);
-  await anonymous.request("/games/afrad-alzil", { text: true });
+  await anonymous.request("/games/mafia", { text: true });
+  await anonymous.request("/games/afrad-alzil", { expected: 301, text: true });
   await anonymous.request("/games/aldakhil", { text: true });
   await anonymous.request("/games/bluff-card", { text: true });
   step("الصحة العامة وصفحات اللعب وSEO تعمل");
@@ -160,7 +161,7 @@ async function main() {
   assert.equal(replaced.members.filter((member) => member.bot).length, 4);
   await host.request(`/api/rooms/${privateCode}/end`, { method: "POST" });
   await host.request(`/api/rooms/${privateCode}`, { expected: 410 });
-  step("بداية أفراد الظل، الأدوار، الروبوتات، التعويض ونهاية الرابط تعمل");
+  step("بداية المافيا، الأدوار، الروبوتات، التعويض ونهاية الرابط تعمل");
 
   const transferRoom = await host.request("/api/rooms", { method: "POST", expected: 201, body: { gameType: "mafia", private: false } });
   const transferCode = transferRoom.room.code;

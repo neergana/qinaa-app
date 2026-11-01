@@ -1,6 +1,6 @@
 export const initialPlayers = [
-  { id: "me", name: "سامي", initial: "س", accent: "a1", host: true, alive: true, connected: true, role: "أفراد الظل" },
-  { id: "noor", name: "نور", initial: "ن", accent: "a2", alive: true, connected: true, role: "أفراد الظل" },
+  { id: "me", name: "سامي", initial: "س", accent: "a1", host: true, alive: true, connected: true, role: "عضو المافيا" },
+  { id: "noor", name: "نور", initial: "ن", accent: "a2", alive: true, connected: true, role: "عضو المافيا" },
   { id: "layan", name: "ليان", initial: "ل", accent: "a3", alive: true, connected: true, role: "المُنقذ" },
   { id: "omar", name: "عمر", initial: "ع", accent: "a4", alive: true, connected: true, role: "الشيخ" },
   { id: "mariam", name: "مريم", initial: "م", accent: "a5", alive: true, connected: true, role: "الكشّاف" },

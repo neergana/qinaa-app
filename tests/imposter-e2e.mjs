@@ -90,7 +90,7 @@ async function main() {
   const imposterRooms = await spectator.request("/api/rooms?game=imposter");
   assert.ok(imposterRooms.rooms.some((room) => room.code === code));
   assert.ok(!mafiaRooms.rooms.some((room) => room.code === code));
-  step("دليل غرف الدخيل منفصل عن دليل غرف أفراد الظل");
+  step("دليل غرف الدخيل منفصل عن دليل غرف المافيا");
 
   await clients[0].request(`/api/rooms/${code}/start`, { method: "POST", body: {} });
   const revealStates = await Promise.all(clients.map((client) => client.request(`/api/rooms/${code}/imposter`)));

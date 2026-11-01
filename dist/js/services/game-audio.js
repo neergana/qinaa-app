@@ -17,6 +17,7 @@ export const NARRATION_CUES = Object.freeze({
 });
 
 const ROLE_CUES = Object.freeze({
+  "عضو المافيا": { wake: "shadowWake", sleep: "shadowSleep" },
   "أفراد الظل": { wake: "shadowWake", sleep: "shadowSleep" },
   "المُنقذ": { wake: "rescuerWake", sleep: "rescuerSleep" },
   "الشيخ": { wake: "sheikhWake", sleep: "sheikhSleep" },
