@@ -70,6 +70,8 @@ export const state = {
     dead: [],
   },
   history: [],
+  mafiaGame: null,
+  mafiaRoleRevealed: false,
   imposterGame: null,
   imposterRoleRevealed: false,
   imposterVoteSelections: [],

@@ -453,12 +453,15 @@ function revealRole() {
   }, 1000);
 }
 
-function enterGameAfterRole() {
+async function enterGameAfterRole() {
   window.clearInterval(roleRevealTimer);
   roleRevealTimer = null;
   if ($("#roleDialog").open) $("#roleDialog").close();
-  resetForNight();
-  navigate("game");
+  try {
+    await apiRequest(`/api/rooms/${encodeURIComponent(activeRoomCode())}/mafia/ready`, { method: "POST", body: "{}" });
+    await loadMafiaState();
+    navigate("game");
+  } catch (error) { showToast(error.message); }
 }
 
 function currentPlayerRole() {
@@ -820,6 +823,53 @@ async function loadBluffState() {
   return data;
 }
 
+function mafiaClientId(rawId) {
+  return rawId === state.account?.id ? "me" : rawId;
+}
+
+async function loadMafiaState() {
+  const data = await apiRequest(`/api/rooms/${encodeURIComponent(activeRoomCode())}/mafia`);
+  const previous = state.mafiaGame;
+  state.mafiaGame = data;
+  state.selectedGameType = "mafia";
+  state.round = data.round || 1;
+  state.phase = data.phase;
+  state.phaseRemaining = data.speakerId ? data.speakerSeconds : data.secondsRemaining;
+  state.phaseSeconds = data.phase === "day" ? 240 : data.phase === "vote" ? 60 : data.phase === "defense" ? 90 : data.phase === "reveal" ? 30 : 75;
+  state.players = (data.players || []).map((player, index) => {
+    const old = state.players.find((entry) => (entry.rawId || entry.id) === player.id);
+    return { ...old, id: mafiaClientId(player.id), rawId: player.id, name: player.name, initial: player.bot ? "◉" : player.name?.charAt(0) || "؟", accent: `a${(index % 6) + 1}`, alive: player.alive, connected: true, bot: player.bot, role: player.role || null, avatarType: player.avatarType, avatarValue: player.avatarValue };
+  });
+  state.selectedTarget = data.me?.selectedTarget ? mafiaClientId(data.me.selectedTarget) : null;
+  state.scoutTargets = (data.me?.selectedTargets || []).map(mafiaClientId);
+  state.nightChoiceConfirmed = Boolean(data.me?.actionConfirmed);
+  state.scoutResult = data.me?.privateResult?.type === "scout" ? Boolean(data.me.privateResult.shadow) : null;
+  state.voteRound = data.voteRound || 1;
+  state.voteRemaining = data.secondsRemaining || 0;
+  state.voteConfirmed = Boolean(data.me?.voteConfirmed);
+  state.myVote = data.me?.voteTarget ? mafiaClientId(data.me.voteTarget) : null;
+  state.voteConfirmations = data.voteConfirmations || 0;
+  state.voteClosed = false;
+  state.votes = Object.fromEntries(Object.entries(data.voteCounts || {}).map(([id, count]) => [mafiaClientId(id), count]));
+  state.voteVoters = {};
+  state.revoteCandidates = (data.defenseOrder || []).map(mafiaClientId);
+  state.defenseCandidates = (data.defenseOrder || []).map(mafiaClientId);
+  state.defenseIndex = data.defenseIndex || 0;
+  state.defenseRemaining = data.secondsRemaining || 0;
+  state.defenseStarted = data.phase === "defense";
+  state.speaker = data.speakerId ? state.players.find((player) => player.rawId === data.speakerId) || null : null;
+  state.speakerRemaining = data.speakerSeconds || 0;
+  state.discussionRemaining = data.speakerId ? Number(data.discussionRemainingSeconds || 0) : data.secondsRemaining || 0;
+  if (previous?.round && previous.round !== data.round) state.mafiaRoleRevealed = false;
+  const resultKey = data.lastResult ? JSON.stringify(data.lastResult) : "";
+  if (resultKey && resultKey !== previous?._resultKey) {
+    const eliminated = state.players.find((player) => player.rawId === data.lastResult.eliminatedId);
+    state.history.push({ round: data.round, title: data.lastResult.type === "night" ? "نتيجة الليل" : "التصويت العام", result: data.lastResult.protected ? "أُحبط هجوم أفراد الظل." : eliminated ? `${eliminated.name} خرج من الجولة.` : "لم يُقصَ أي لاعب.", voters: [], tie: data.lastResult.type?.includes("tie") });
+  }
+  state.mafiaGame._resultKey = resultKey;
+  return data;
+}
+
 function startLobbyPolling() {
   stopLobbyPolling();
   const poll = async () => {
@@ -829,12 +879,13 @@ function startLobbyPolling() {
       if (state.route === "game") {
         if (isImposterRoom()) await loadImposterState();
         if (isBluffRoom()) await loadBluffState();
+        if (!isImposterRoom() && !isBluffRoom()) await loadMafiaState();
         renderGame();
         return;
       }
       const activeRoom = state.rooms.find((room) => room.id === state.activeRoomId);
       if (state.spectator && activeRoom?.status === "جولة جارية") {
-        resetForNight();
+        if (!isImposterRoom() && !isBluffRoom()) await loadMafiaState();
         navigate("game");
         showToast("بدأت الجولة — انتقلت إلى المشاهدة");
         return;
@@ -845,7 +896,7 @@ function startLobbyPolling() {
           if (mine.gameType === "imposter") await loadImposterState();
           else await loadBluffState();
           navigate("game");
-        } else if (mine.status === "playing" && mine.role && !$("#roleDialog").open) prepareRoleReveal(mine.role, mine.partners || []);
+        } else if (mine.status === "playing" && mine.role && !$("#roleDialog").open && !state.mafiaGame?.me?.ready) prepareRoleReveal(mine.role, mine.partners || []);
       }
     } catch (error) {
       if (error.data?.ended) {
@@ -905,7 +956,9 @@ function navigate(route, { fromHistory = false, replace = false } = {}) {
     } else if (isBluffRoom()) {
       gameAudio.stop();
       loadBluffState().then(renderGame).catch((error) => showToast(error.message));
-    } else void beginNightNarration();
+    } else {
+      loadMafiaState().then(() => { renderGame(); void beginNightNarration(); }).catch((error) => showToast(error.message));
+    }
   }
 }
 
@@ -1000,6 +1053,20 @@ function startTicker() {
         if (voteClock) voteClock.textContent = formatTime(state.imposterGame.voteSecondsRemaining);
         if (state.imposterGame.voteSecondsRemaining === 0) loadImposterState().then(renderGame).catch(() => {});
       }
+      return;
+    }
+    if (state.mafiaGame) {
+      if (state.mafiaGame.speakerId) {
+        state.speakerRemaining = Math.max(0, state.speakerRemaining - 1);
+        state.phaseRemaining = state.speakerRemaining;
+      } else {
+        state.phaseRemaining = Math.max(0, state.phaseRemaining - 1);
+        if (state.phase === "vote") state.voteRemaining = state.phaseRemaining;
+        if (state.phase === "defense") state.defenseRemaining = state.phaseRemaining;
+        if (state.phase === "day") state.discussionRemaining = state.phaseRemaining;
+      }
+      updateTimers();
+      if (state.phaseRemaining === 0) loadMafiaState().then(renderGame).catch(() => {});
       return;
     }
     if (state.phase === "night") {
@@ -1135,12 +1202,14 @@ function imposterTemplate() {
 
   const results = game.results || {};
   const winnerLabel = results.winner === "knowers" ? "فاز أهل الكلمة" : "فاز الدخلاء";
+  const standings = game.standings || [];
   return `<div class="imposter-stage"><section class="imposter-hero"><small>انتهت الجولة</small><h1>كُشفت الحقيقة</h1><p>ظهرت النتيجة الإجمالية من دون كشف هوية المصوّتين.</p></section>
     <div class="imposter-results"><div class="result-banner"><span>${escapeHtml(results.secretWord || "")}</span><strong>${winnerLabel}</strong></div>
       <div class="result-list">${game.players.map((player) => `<div class="result-row"><span>${escapeHtml(player.name)}${results.imposters?.includes(player.id) ? " · الدخيل" : ""}</span><small>${formatVoteCount(results.voteCounts?.[player.id])}</small></div>`).join("")}</div>
       ${results.tieAtCutoff ? '<div class="turn-wait">حدث تعادل عند حدّ الاختيار، لذلك لم يُعتبر المتعادلون مكشوفين.</div>' : ""}
+      ${standings.length ? `<section class="imposter-standings"><div class="section-label"><h2>ترتيب الغرفة</h2><span>يتراكم بعد كل جولة</span></div>${standings.map((entry) => `<div class="result-row"><span><b>${entry.rank}</b> · ${escapeHtml(entry.name)}</span><small>${entry.points} نقطة · ${entry.wins} فوز</small></div>`).join("")}</section>` : ""}
       <div class="imposter-result-actions">
-        ${isHost ? '<button class="button button-primary full" data-action="end-round">إنهاء الغرفة والعودة للرئيسية</button>' : ''}
+        ${isHost ? '<button class="button button-primary full" data-imposter-action="next-round">بدء جولة جديدة</button><button class="button button-secondary full" data-action="end-round">إنهاء الغرفة والعودة للرئيسية</button>' : '<div class="turn-wait">ننتظر المضيف لبدء جولة جديدة.</div>'}
         <button class="button button-secondary full" data-action="leave-room">مغادرة الغرفة</button>
       </div>
     </div></div>`;
@@ -1369,6 +1438,18 @@ function chatComposerFocused() {
   return document.activeElement?.matches?.('#gameContent [data-chat-form] input[name="message"]');
 }
 
+function mafiaRevealWaitingTemplate() {
+  const me = state.mafiaGame?.me;
+  return `<div class="game-stage"><section class="stage-hero spectator-night"><span class="mock-flag">كشف سري</span><div class="eyebrow"><span></span> تجهيز الجولة</div><h1>${state.spectator ? "اللاعبون يكشفون أدوارهم" : "تم تأكيد دورك"}</h1><p>${state.spectator ? "لن تظهر لك الأدوار السرية. تبدأ الليلة بعد استعداد اللاعبين." : "ننتظر بقية اللاعبين، أو تبدأ الجولة تلقائياً عند انتهاء 30 ثانية."}</p></section><div class="spectator-wait">${icon("lock")}<strong>${me?.ready ? "أنت مستعد" : "جارٍ تجهيز الجولة"}</strong><small>${formatTime(state.phaseRemaining)}</small></div></div>`;
+}
+
+function mafiaResultsTemplate() {
+  const shadowsWon = state.mafiaGame?.winner === "shadows";
+  const activeRoom = state.rooms.find((room) => room.id === state.activeRoomId);
+  const isHost = Boolean(state.account && activeRoom?.hostUserId === state.account.id);
+  return `<div class="game-stage"><section class="stage-hero"><span class="mock-flag">انتهت الجولة</span><div class="eyebrow"><span></span> كُشفت الأدوار</div><h1>${shadowsWon ? "فاز أفراد الظل" : "فاز الأبرياء"}</h1><p>${shadowsWon ? "وصل أفراد الظل إلى السيطرة على المجلس." : "نجح المجلس في إقصاء جميع أفراد الظل."}</p></section><div class="roster-grid">${state.players.map((player) => `<div class="roster-card ${player.alive ? "" : "is-dead"}">${avatar(player)}<div><strong>${escapeHtml(player.name)}</strong><small>${escapeHtml(player.role || "دور مخفي")}</small></div></div>`).join("")}</div><div class="imposter-result-actions">${isHost ? '<button class="button button-primary full" data-action="end-round">إنهاء الغرفة والعودة للرئيسية</button>' : ""}<button class="button button-secondary full" data-action="leave-room">مغادرة الغرفة</button></div></div>`;
+}
+
 function renderGame() {
   if (chatComposerFocused()) {
     gameRenderDeferred = true;
@@ -1382,10 +1463,12 @@ function renderGame() {
   $$('[data-game-tab]').forEach((button) => { button.hidden = false; });
   if (state.currentTab === "chat") state.currentTab = "arena";
   const labels = {
+    reveal: { label: "كشف الأدوار", icon: "lock" },
     night: { label: "حلّ الليل", icon: "moon" },
     day: { label: "وقت النقاش", icon: "sun" },
     defense: { label: "دفاع المتعادلين", icon: "shield" },
     vote: { label: state.voteRound > 1 ? "إعادة التصويت" : "وقت التصويت", icon: "vote" },
+    results: { label: "نتيجة الجولة", icon: "shield" },
   };
   const current = labels[state.phase];
   $("#roundLabel").textContent = `الجولة ${state.round === 1 ? "الأولى" : state.round}`;
@@ -1396,7 +1479,7 @@ function renderGame() {
 
   let content = "";
   if (state.currentTab === "arena") {
-    content = state.phase === "night" ? nightTemplate() : state.phase === "day" ? dayTemplate() : state.phase === "defense" ? defenseTemplate() : voteTemplate();
+    content = state.phase === "reveal" ? mafiaRevealWaitingTemplate() : state.phase === "results" ? mafiaResultsTemplate() : state.phase === "night" ? nightTemplate() : state.phase === "day" ? dayTemplate() : state.phase === "defense" ? defenseTemplate() : voteTemplate();
   } else if (state.currentTab === "players") {
     content = playersTemplate();
   } else {
@@ -1417,7 +1500,6 @@ function nightTemplate() {
     "أفراد الظل": { eyebrow: "قناة أفراد الظل الخاصة", title: "اختاروا هدف الليلة", description: "لا يرى هذا القرار سوى أفراد الظل. اختاروا لاعباً ثم أكدوا القرار.", target: "الهدف المقترح" },
     "المُنقذ": { eyebrow: "قرار المُنقذ", title: "من ستحمي الليلة؟", description: "اختر لاعباً واحداً لحمايته من هجوم أفراد الظل هذه الليلة.", target: "اللاعب المحمي" },
     "الشيخ": { eyebrow: "كشف الأسرار", title: "من ستفحص الليلة؟", description: "اختَر لاعباً واحداً لتتحقق سراً إن كان من أفراد الظل.", target: "هدف الكشف" },
-    "الساحرة": { eyebrow: "قرار حارسة الجرعات", title: "اختاري هدف جرعتك", description: "اختاري لاعباً لقرارك الليلي. استعمال الجرعات الكامل سيُربط بالخادم لاحقاً.", target: "هدف الجرعة" },
     "الكشّاف": { eyebrow: "جولة الكشّاف", title: "اختر ثلاثة لاعبين", description: "ستعرف هل يوجد فرد من الظل بينهم، من دون معرفة هويته بالتحديد.", target: "مجموعة الفحص" },
   };
   const actionCopy = roleActions[me?.role];
@@ -1464,6 +1546,8 @@ function dayTemplate() {
   const mic = micStatus();
   const micDisabled = state.spectator || !me?.alive || Boolean(state.speaker && !isMyTurn);
   const chatChannel = me?.alive || state.spectator ? "public" : "dead";
+  const roleResult = state.mafiaGame?.me?.privateResult;
+  const roleResultCopy = roleResult ? (roleResult.type === "inspect" ? (roleResult.shadow ? "كشف الشيخ: اللاعب الذي فحصته من أفراد الظل." : "كشف الشيخ: اللاعب الذي فحصته ليس من أفراد الظل.") : (roleResult.shadow ? "كشف الكشّاف: يوجد فرد من الظل داخل المجموعة." : "كشف الكشّاف: لا يوجد فرد من الظل داخل المجموعة.")) : "";
   return `
     <div class="game-stage">
       <section class="stage-hero">
@@ -1472,6 +1556,7 @@ function dayTemplate() {
         <h1>من تتهم اليوم؟</h1>
         <p>أربع دقائق للنقاش. يتوقف المؤقت تلقائياً أثناء مداخلة المتحدث، ثم يستأنف من حيث توقف.</p>
       </section>
+      ${roleResultCopy ? `<div class="prototype-note"><span>نتيجة سرية</span><p><strong>${escapeHtml(roleResultCopy)}</strong> لا يراها أي لاعب آخر.</p></div>` : ""}
       <div class="section-label"><h2>مؤقت النقاش</h2><span>${state.speaker ? "متوقف أثناء المداخلة" : "يعمل الآن"}</span></div>
       <div class="discussion-timer">
         <div class="discussion-top"><strong>${state.speaker ? "المؤقت متوقف مؤقتاً" : "النقاش الحر"}</strong><span id="discussionClock">${formatTime(state.discussionRemaining)}</span></div>
@@ -1808,6 +1893,15 @@ async function handleGameAction(action, target) {
     } catch (error) { showToast(error.message || "تعذر تشغيل الصوت"); }
     return;
   } else if (action === "request-speech") {
+    if (state.mafiaGame) {
+      try {
+        await apiRequest(`/api/rooms/${encodeURIComponent(activeRoomCode())}/mafia/speech`, { method: "POST", body: JSON.stringify({ action: "request" }) });
+        state.requestedToSpeak = true;
+        await loadMafiaState();
+        renderGame();
+      } catch (error) { showToast(error.message); }
+      return;
+    }
     if (state.speaker?.id === "me") return;
     state.requestedToSpeak = !state.requestedToSpeak;
     if (state.requestedToSpeak) {
@@ -1827,6 +1921,15 @@ async function handleGameAction(action, target) {
     }
   } else if (action === "self-stop") {
     if (state.speaker?.id !== "me") return;
+    if (state.mafiaGame) {
+      try {
+        await apiRequest(`/api/rooms/${encodeURIComponent(activeRoomCode())}/mafia/speech`, { method: "POST", body: JSON.stringify({ action: "end" }) });
+        releaseMicrophone();
+        await loadMafiaState();
+        renderGame();
+      } catch (error) { showToast(error.message); }
+      return;
+    }
     finishCurrentSpeech(false);
     return;
   } else if (action === "confirm-night") {
@@ -1834,6 +1937,17 @@ async function handleGameAction(action, target) {
     const isScout = me?.role === "الكشّاف";
     const choiceReady = isScout ? state.scoutTargets.length === 3 : Boolean(state.selectedTarget);
     if (!choiceReady || state.nightChoiceConfirmed) return;
+    if (state.mafiaGame) {
+      try {
+        const targetUserId = state.selectedTarget ? (state.players.find((player) => player.id === state.selectedTarget)?.rawId || state.selectedTarget) : null;
+        const targetUserIds = state.scoutTargets.map((id) => state.players.find((player) => player.id === id)?.rawId || id);
+        await apiRequest(`/api/rooms/${encodeURIComponent(activeRoomCode())}/mafia/night`, { method: "POST", body: JSON.stringify({ targetUserId, targetUserIds }) });
+        await loadMafiaState();
+        renderGame();
+        showToast("تم تأكيد قرارك — ننتظر بقية الأدوار");
+      } catch (error) { showToast(error.message); }
+      return;
+    }
     const requiredConfirmations = me?.role === "أفراد الظل" ? Math.max(1, state.players.filter((player) => player.role === "أفراد الظل" && player.alive).length) : 1;
     if (isScout) {
       state.scoutResult = state.scoutTargets.some((id) => state.players.find((player) => player.id === id)?.role === "أفراد الظل");
@@ -1852,6 +1966,16 @@ async function handleGameAction(action, target) {
     return;
   } else if (action === "confirm-vote") {
     if (!state.myVote || state.voteConfirmed || state.voteClosed) return;
+    if (state.mafiaGame) {
+      try {
+        const targetUserId = state.players.find((player) => player.id === state.myVote)?.rawId || state.myVote;
+        await apiRequest(`/api/rooms/${encodeURIComponent(activeRoomCode())}/mafia/vote`, { method: "POST", body: JSON.stringify({ targetUserId }) });
+        await loadMafiaState();
+        renderGame();
+        showToast("تم تأكيد صوتك نهائياً");
+      } catch (error) { showToast(error.message); }
+      return;
+    }
     state.voteConfirmed = true;
     state.votes[state.myVote] = (state.votes[state.myVote] || 0) + 1;
     const voterName = state.players.find((player) => player.id === "me")?.name || "أنت";
@@ -1877,7 +2001,13 @@ async function handleGameAction(action, target) {
     const candidateId = state.defenseCandidates[state.defenseIndex];
     if (candidateId !== "me" || !state.defenseStarted) return;
     releaseMicrophone();
-    completeDefenseTurn(false);
+    if (state.mafiaGame) {
+      try {
+        await apiRequest(`/api/rooms/${encodeURIComponent(activeRoomCode())}/mafia/defense`, { method: "POST", body: "{}" });
+        await loadMafiaState();
+        renderGame();
+      } catch (error) { showToast(error.message); }
+    } else completeDefenseTurn(false);
     return;
   } else if (action === "end-round") {
     try {
@@ -1891,6 +2021,7 @@ async function handleGameAction(action, target) {
     } catch (error) { showToast(error.message); }
     return;
   } else if (action === "next-night") {
+    if (state.mafiaGame) return;
     goToNextNight();
     return;
   }
@@ -1909,6 +2040,7 @@ async function handleImposterAction(action) {
     else if (action === "answer-done") await apiRequest(`/api/rooms/${encodeURIComponent(activeRoomCode())}/imposter/turn`, { method: "POST", body: JSON.stringify({ action: "answer_done" }) });
     else if (action === "confirm-vote") await apiRequest(`/api/rooms/${encodeURIComponent(activeRoomCode())}/imposter/vote`, { method: "POST", body: JSON.stringify({ selections: state.imposterVoteSelections }) });
     else if (action === "confirm-word") await apiRequest(`/api/rooms/${encodeURIComponent(activeRoomCode())}/imposter/word`, { method: "POST", body: JSON.stringify({ word: state.imposterWordChoice }) });
+    else if (action === "next-round") await apiRequest(`/api/rooms/${encodeURIComponent(activeRoomCode())}/imposter/next`, { method: "POST", body: "{}" });
     await loadImposterState();
     renderGame();
   } catch (error) {
@@ -2366,11 +2498,12 @@ function bindEvents() {
 
   roomChat.addEventListener("chat-error", (event) => showToast(event.detail));
   roomChat.addEventListener("game-sync", async (event) => {
-    if (!["imposter", "bluff"].includes(event.detail?.gameType) || state.route !== "game" || !activeRoomCode()) return;
+    if (!["mafia", "imposter", "bluff"].includes(event.detail?.gameType) || state.route !== "game" || !activeRoomCode()) return;
     try {
       await loadRoom(activeRoomCode());
       if (event.detail.gameType === "imposter") await loadImposterState();
-      else await loadBluffState();
+      else if (event.detail.gameType === "bluff") await loadBluffState();
+      else await loadMafiaState();
       renderGame();
     } catch (error) {
       if (error.data?.ended) navigate("home", { replace: true });
