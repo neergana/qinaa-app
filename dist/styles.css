@@ -702,8 +702,8 @@ dialog::backdrop { background: rgba(0,0,0,.74); backdrop-filter: blur(7px); }
 .app-download-copy > span { color:var(--purple-2); font-size:.56rem; font-weight:700; }
 .app-download-copy h2 { margin:.2rem 0 .25rem; font-size:1.2rem; }
 .app-download-copy p { margin:0 0 .85rem; color:var(--muted); font-size:.62rem; line-height:1.7; }
-.app-store-grid { position:relative; z-index:1; display:grid; justify-content:start; gap:.55rem; direction:ltr; }
-.app-store-badge { display:grid; grid-template-columns:2.25rem minmax(0,1fr); align-items:center; gap:.55rem; width:min(100%,12.6rem); min-height:3.6rem; padding:.38rem .72rem; border:1px solid #a6a6a6; border-radius:.48rem; color:#fff; background:#050505; box-shadow:inset 0 0 0 1px rgba(255,255,255,.1),0 .35rem .8rem rgba(0,0,0,.24); direction:ltr; }
+.app-store-grid { position:relative; z-index:1; display:flex; width:min(100%,25.75rem); align-items:stretch; justify-content:flex-start; gap:.55rem; direction:ltr; }
+.app-store-badge { display:grid; min-width:0; min-height:3.6rem; flex:1 1 0; grid-template-columns:2.25rem minmax(0,1fr); align-items:center; gap:.55rem; padding:.38rem .72rem; border:1px solid #a6a6a6; border-radius:.48rem; color:#fff; background:#050505; box-shadow:inset 0 0 0 1px rgba(255,255,255,.1),0 .35rem .8rem rgba(0,0,0,.24); direction:ltr; }
 .store-icon { display:grid; width:2.2rem; height:2.55rem; place-items:center; color:#fff; direction:ltr; }
 .store-icon svg { display:block; width:1.85rem; height:2.15rem; fill:currentColor; }
 .store-icon.play svg { width:2rem; height:2.2rem; }
@@ -880,7 +880,6 @@ dialog::backdrop { background: rgba(0,0,0,.74); backdrop-filter: blur(7px); }
   .game-choice-card p { grid-area:description; align-self:start; margin:0; }
   .game-choice-card b { grid-area:action; white-space:nowrap; }
   .app-download { margin-inline:1.8rem; padding:1.3rem; }
-  .app-store-grid { grid-template-columns:1fr 1fr; }
   .game-landing-hero,.game-rules-preview { margin-inline:1.8rem; }
   .game-rules-preview { padding-inline:0; }
   .imposter-stage { padding-inline:1.8rem; }
@@ -902,6 +901,16 @@ dialog::backdrop { background: rgba(0,0,0,.74); backdrop-filter: blur(7px); }
   input, select, textarea { font-size: 16px !important; }
   .account-dialog { max-height: 96dvh; }
   .auth-shell { padding-inline: .95rem; }
+}
+
+@media (max-width: 430px) {
+  .app-store-grid { gap:.35rem; }
+  .app-store-badge { min-height:3.25rem; grid-template-columns:1.65rem minmax(0,1fr); gap:.35rem; padding:.3rem .42rem; }
+  .store-icon { width:1.65rem; height:2rem; }
+  .store-icon svg { width:1.45rem; height:1.75rem; }
+  .store-icon.play svg { width:1.55rem; height:1.8rem; }
+  .app-store-badge small { font-size:.32rem; }
+  .app-store-badge strong { font-size:clamp(.72rem,4vw,.92rem); }
 }
 
 .role-dialog { width: calc(100% - 2rem); max-width: 24rem; max-height: 94dvh; padding: 0; border: 0; overflow: auto; background: transparent; }
