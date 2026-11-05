@@ -2,9 +2,12 @@ const MAX_MESSAGE_LENGTH = 180;
 const SESSION_DAYS = 30;
 const AVATAR_PRESETS = new Set(Array.from({ length: 10 }, (_, index) => `mask-${String(index + 1).padStart(2, "0")}`));
 const BOT_NAMES = ["نادر", "سلمى", "مالك", "ليان", "ياسين", "مريم", "آدم", "نور", "سارة", "عمر", "هبة", "زياد", "رنا", "أيمن", "ندى", "أنس", "جنى", "سامي", "لمى", "كريم"];
-const GAME_TYPES = new Set(["mafia", "imposter", "bluff"]);
-const MAFIA_ROLE = "عضو المافيا";
-const LEGACY_MAFIA_ROLE = "أفراد الظل";
+const GAME_TYPES = new Set(["mafia", "wolf", "imposter", "bluff"]);
+const MAFIA_ROLE = "المافيا";
+const LEGACY_MAFIA_ROLES = new Set(["عضو المافيا", "أفراد الظل"]);
+const WOLF_ROLE = "الذئب";
+const MAFIA_CITIZEN_ROLE = "المواطن الصالح";
+const WOLF_VILLAGER_ROLE = "ساكن القرية";
 const BLUFF_CARD_TYPES = [
   { id: "cockroach", name: "الصرصور", symbol: "▰", color: "#b9873f" },
   { id: "butterfly", name: "الفراشة", symbol: "✦", color: "#f39a3d" },
@@ -48,7 +51,15 @@ function clean(value, fallback = "", max = 80) {
 }
 
 function isMafiaRole(role) {
-  return role === MAFIA_ROLE || role === LEGACY_MAFIA_ROLE;
+  return role === MAFIA_ROLE || LEGACY_MAFIA_ROLES.has(role);
+}
+
+function isWolfRole(role) {
+  return role === WOLF_ROLE;
+}
+
+function isPredatorRole(role) {
+  return isMafiaRole(role) || isWolfRole(role);
 }
 
 function validBirthDate(value) {
@@ -323,7 +334,7 @@ function publicGamePage(row) {
 }
 
 async function listGamePages(env) {
-  const result = await env.DB.prepare("SELECT * FROM game_pages ORDER BY CASE game_type WHEN 'mafia' THEN 0 WHEN 'imposter' THEN 1 ELSE 2 END").all();
+  const result = await env.DB.prepare("SELECT * FROM game_pages ORDER BY CASE game_type WHEN 'mafia' THEN 0 WHEN 'wolf' THEN 1 WHEN 'imposter' THEN 2 ELSE 3 END").all();
   return result.results.map(publicGamePage);
 }
 
@@ -732,7 +743,7 @@ async function replaceMemberWithBot(env, room, targetUserId) {
       env.DB.prepare("DELETE FROM bluff_players WHERE round_id = ? AND user_id = ?").bind(member.round_id, targetUserId),
     ]);
   }
-  if (room.game_type === "mafia" && member.round_id) {
+  if (["mafia", "wolf"].includes(room.game_type) && member.round_id) {
     const stateRow = await env.DB.prepare("SELECT defense_order FROM mafia_round_state WHERE round_id = ? LIMIT 1").bind(member.round_id).first();
     let defenseOrder = [];
     try { defenseOrder = JSON.parse(stateRow?.defense_order || "[]").map((userId) => userId === targetUserId ? botId : userId); } catch (_) { defenseOrder = []; }
@@ -801,7 +812,7 @@ async function createRoom(request, env, user) {
   const roundId = crypto.randomUUID();
   const now = new Date().toISOString();
   const capacity = gameType === "imposter" ? 18 : gameType === "bluff" ? 5 : 20;
-  const defaultName = gameType === "imposter" ? `مجلس الدخيل · ${user.display_name}` : gameType === "bluff" ? `طاولة بطاقة الخداع · ${user.display_name}` : `غرفة ${user.display_name}`;
+  const defaultName = gameType === "imposter" ? `مجلس الدخيل · ${user.display_name}` : gameType === "bluff" ? `طاولة بطاقة الخداع · ${user.display_name}` : gameType === "wolf" ? `قرية الذئاب · ${user.display_name}` : `غرفة المافيا · ${user.display_name}`;
   await env.DB.batch([
     env.DB.prepare("INSERT INTO rooms (id, code, name, host_user_id, is_private, capacity, game_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").bind(roomId, code, clean(input.name, defaultName, 60), user.id, input.private ? 1 : 0, capacity, gameType, now),
     env.DB.prepare("INSERT INTO rounds (id, room_id, number, status, created_at) VALUES (?, ?, 1, 'active', ?)").bind(roundId, roomId, now),
@@ -868,14 +879,22 @@ async function leaveRoom(env, code, user) {
   return json({ left: true, botReplacement, newHostUserId: room.host_user_id === user.id ? nextHuman?.user_id || null : room.host_user_id });
 }
 
-function roleDeck(count, options = {}) {
-  const shadowCount = count >= 16 ? 4 : count >= 12 ? 3 : count >= 8 ? 2 : 1;
-  const deck = Array(shadowCount).fill(MAFIA_ROLE);
-  if (count >= 5) deck.push("المُنقذ", "الشيخ");
-  if (count >= 8 && deck.length < count) deck.push("الكشّاف");
-  if (options.witch && deck.length < count) deck.push("الساحرة");
-  if (options.cupid && deck.length < count) deck.push("الخطّابة");
-  while (deck.length < count) deck.push("البريء");
+function roleDeck(count, gameType = "mafia") {
+  const predatorCount = count >= 16 ? 4 : count >= 12 ? 3 : count >= 8 ? 2 : 1;
+  const deck = Array(predatorCount).fill(gameType === "wolf" ? WOLF_ROLE : MAFIA_ROLE);
+  if (gameType === "wolf") {
+    if (count >= 5) deck.push("العرّافة");
+    if (count >= 6) deck.push("الساحرة");
+    if (count >= 7) deck.push("الصياد");
+    if (count >= 8) deck.push("عين الليل");
+    if (count >= 9) deck.push("رابطة القلوب");
+    if (count >= 10) deck.push("الملعون");
+    if (count >= 11) deck.push("العجوز");
+    while (deck.length < count) deck.push(WOLF_VILLAGER_ROLE);
+  } else {
+    if (count >= 5) deck.push("الطبيب", "الشيخ");
+    while (deck.length < count) deck.push(MAFIA_CITIZEN_ROLE);
+  }
   for (let index = deck.length - 1; index > 0; index -= 1) {
     const other = Math.floor(Math.random() * (index + 1));
     [deck[index], deck[other]] = [deck[other], deck[index]];
@@ -1571,13 +1590,13 @@ async function bluffAction(request, env, code, user, action) {
 
 async function activeMafiaContext(env, code) {
   return env.DB.prepare(`
-    SELECT r.id AS room_id, r.code, r.host_user_id, r.status AS room_status, r.is_private, r.ended_at,
+    SELECT r.id AS room_id, r.code, r.game_type, r.host_user_id, r.status AS room_status, r.is_private, r.ended_at,
       rd.id AS round_id, rd.number, s.phase, s.phase_deadline, s.night_number, s.vote_round,
       s.defense_order, s.defense_index, s.speaker_user_id, s.speaker_deadline,
       s.discussion_remaining_seconds, s.last_result_json, s.winner, s.version
     FROM rooms r JOIN rounds rd ON rd.room_id = r.id
     LEFT JOIN mafia_round_state s ON s.round_id = rd.id
-    WHERE r.code = ? AND r.game_type = 'mafia' AND rd.status = 'active'
+    WHERE r.code = ? AND r.game_type IN ('mafia', 'wolf') AND rd.status = 'active'
     ORDER BY rd.number DESC LIMIT 1
   `).bind(code).first();
 }
@@ -1590,17 +1609,19 @@ async function mafiaMembers(env, roomId) {
   `).bind(roomId).all()).results;
 }
 
-function mafiaWinner(members) {
+function mafiaWinner(members, gameType = "mafia") {
   const alive = members.filter((member) => member.alive);
-  const shadows = alive.filter((member) => isMafiaRole(member.role)).length;
-  if (shadows === 0) return "innocents";
-  if (shadows >= alive.length - shadows) return "shadows";
+  const predators = alive.filter((member) => gameType === "wolf" ? isWolfRole(member.role) : isMafiaRole(member.role)).length;
+  if (predators === 0) return "innocents";
+  if (predators >= alive.length - predators) return "shadows";
   return null;
 }
 
-function mafiaActionType(role) {
-  if (isMafiaRole(role)) return "shadow";
-  return ({ "المُنقذ": "protect", "الشيخ": "inspect", "الكشّاف": "scout" })[role] || null;
+function mafiaActionType(role, gameType = "mafia", nightNumber = 1) {
+  if ((gameType === "wolf" && isWolfRole(role)) || (gameType === "mafia" && isMafiaRole(role))) return "shadow";
+  if (gameType === "mafia") return ({ "الطبيب": "protect", "المُنقذ": "protect", "الشيخ": "inspect" })[role] || null;
+  if (role === "رابطة القلوب" && Number(nightNumber) > 1) return null;
+  return ({ "العرّافة": "inspect", "الساحرة": "witch", "الصياد": "hunter_mark", "عين الليل": "spy", "رابطة القلوب": "heart" })[role] || null;
 }
 
 async function setMafiaPhase(env, context, phase, seconds, extraSql = "", bindings = []) {
@@ -1608,7 +1629,7 @@ async function setMafiaPhase(env, context, phase, seconds, extraSql = "", bindin
   const deadline = seconds == null ? null : new Date(now.getTime() + seconds * 1000).toISOString();
   await env.DB.prepare(`UPDATE mafia_round_state SET phase = ?, phase_deadline = ?, version = version + 1, updated_at = ? ${extraSql} WHERE round_id = ?`)
     .bind(phase, deadline, now.toISOString(), ...bindings, context.round_id).run();
-  await notifyGameSync(env, context.code, phase, "mafia");
+  await notifyGameSync(env, context.code, phase, context.game_type || "mafia");
 }
 
 async function runMafiaBotNightActions(env, context, members) {
@@ -1616,20 +1637,21 @@ async function runMafiaBotNightActions(env, context, members) {
   const statements = [];
   const now = new Date().toISOString();
   for (const member of alive.filter((entry) => isBotId(entry.user_id))) {
-    const actionType = mafiaActionType(member.role);
+    const actionType = mafiaActionType(member.role, context.game_type, context.night_number);
     if (!actionType) continue;
     const existing = await env.DB.prepare("SELECT 1 FROM mafia_night_actions WHERE round_id = ? AND night_number = ? AND user_id = ? AND action_type = ?")
       .bind(context.round_id, context.night_number, member.user_id, actionType).first();
     if (existing) continue;
     let candidates = alive.filter((entry) => entry.user_id !== member.user_id);
-    if (actionType === "shadow") candidates = candidates.filter((entry) => !isMafiaRole(entry.role));
+    if (actionType === "shadow") candidates = candidates.filter((entry) => !isPredatorRole(entry.role));
     const shuffledCandidates = shuffled(candidates);
-    const targets = actionType === "scout" ? shuffledCandidates.slice(0, 3).map((entry) => entry.user_id) : [];
-    const target = actionType === "scout" ? null : shuffledCandidates[0]?.user_id || null;
+    const targets = actionType === "heart" ? shuffledCandidates.slice(0, 2).map((entry) => entry.user_id) : [];
+    const target = actionType === "heart" || actionType === "witch" ? null : shuffledCandidates[0]?.user_id || null;
+    const metadata = actionType === "witch" ? JSON.stringify({ mode: "pass" }) : targets.length ? JSON.stringify(targets) : null;
     statements.push(env.DB.prepare(`
       INSERT OR IGNORE INTO mafia_night_actions (round_id, night_number, user_id, action_type, target_user_id, targets_json, confirmed_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).bind(context.round_id, context.night_number, member.user_id, actionType, target, targets.length ? JSON.stringify(targets) : null, now));
+    `).bind(context.round_id, context.night_number, member.user_id, actionType, target, metadata, now));
   }
   if (statements.length) await env.DB.batch(statements);
 }
@@ -1644,36 +1666,104 @@ async function resolveMafiaNight(env, context, members) {
   const ranked = Object.entries(shadowCounts).sort((left, right) => right[1] - left[1]);
   const victimId = ranked[0]?.[0] || null;
   const protectedIds = new Set(actions.filter((action) => action.action_type === "protect").map((action) => action.target_user_id));
-  const eliminatedId = victimId && !protectedIds.has(victimId) ? victimId : null;
+  const witchAction = actions.find((action) => action.action_type === "witch");
+  let witchMetadata = {};
+  try { witchMetadata = JSON.parse(witchAction?.targets_json || "{}"); } catch (_) { witchMetadata = {}; }
+  if (witchMetadata.mode === "save" && victimId) protectedIds.add(victimId);
+  const eliminatedIds = new Set();
+  let transformedId = null;
+  let elderSurvivedId = null;
+  const victim = members.find((member) => member.user_id === victimId);
+  if (victimId && !protectedIds.has(victimId)) {
+    if (context.game_type === "wolf" && victim?.role === "الملعون") transformedId = victimId;
+    else if (context.game_type === "wolf" && victim?.role === "العجوز") {
+      const previousSurvival = await env.DB.prepare("SELECT 1 FROM mafia_role_results WHERE round_id = ? AND user_id = ? AND result_json LIKE '%elder_survival%' LIMIT 1")
+        .bind(context.round_id, victimId).first();
+      if (previousSurvival) eliminatedIds.add(victimId);
+      else elderSurvivedId = victimId;
+    } else eliminatedIds.add(victimId);
+  }
+  if (witchMetadata.mode === "poison" && witchAction?.target_user_id) eliminatedIds.add(witchAction.target_user_id);
+
+  const heartAction = await env.DB.prepare("SELECT targets_json FROM mafia_night_actions WHERE round_id = ? AND action_type = 'heart' ORDER BY night_number LIMIT 1")
+    .bind(context.round_id).first();
+  let linkedIds = [];
+  try { linkedIds = JSON.parse(heartAction?.targets_json || "[]"); } catch (_) { linkedIds = []; }
+  if (linkedIds.length === 2 && linkedIds.some((id) => eliminatedIds.has(id))) linkedIds.forEach((id) => eliminatedIds.add(id));
+
+  for (const eliminatedId of [...eliminatedIds]) {
+    const eliminated = members.find((member) => member.user_id === eliminatedId);
+    if (eliminated?.role !== "الصياد") continue;
+    const mark = await env.DB.prepare("SELECT target_user_id FROM mafia_night_actions WHERE round_id = ? AND user_id = ? AND action_type = 'hunter_mark' AND night_number <= ? ORDER BY night_number DESC LIMIT 1")
+      .bind(context.round_id, eliminatedId, context.night_number).first();
+    if (mark?.target_user_id) eliminatedIds.add(mark.target_user_id);
+  }
+  const expandedEliminations = await expandWolfEliminations(env, context, members, [...eliminatedIds]);
+  eliminatedIds.clear();
+  expandedEliminations.forEach((id) => eliminatedIds.add(id));
+
   const now = new Date().toISOString();
   const resultStatements = [];
   for (const action of actions) {
     if (action.action_type === "inspect") {
       const target = members.find((member) => member.user_id === action.target_user_id);
       resultStatements.push(env.DB.prepare("INSERT OR REPLACE INTO mafia_role_results (round_id, night_number, user_id, result_json) VALUES (?, ?, ?, ?)")
-        .bind(context.round_id, context.night_number, action.user_id, JSON.stringify({ type: "inspect", targetUserId: action.target_user_id, shadow: isMafiaRole(target?.role) })));
-    } else if (action.action_type === "scout") {
-      let ids = [];
-      try { ids = JSON.parse(action.targets_json || "[]"); } catch (_) { ids = []; }
+        .bind(context.round_id, context.night_number, action.user_id, JSON.stringify({ type: "inspect", targetUserId: action.target_user_id, shadow: context.game_type === "wolf" ? isWolfRole(target?.role) : isMafiaRole(target?.role) })));
+    } else if (action.action_type === "spy") {
+      const target = members.find((member) => member.user_id === action.target_user_id);
+      const wokeAtNight = Boolean(mafiaActionType(target?.role, context.game_type, context.night_number));
       resultStatements.push(env.DB.prepare("INSERT OR REPLACE INTO mafia_role_results (round_id, night_number, user_id, result_json) VALUES (?, ?, ?, ?)")
-        .bind(context.round_id, context.night_number, action.user_id, JSON.stringify({ type: "scout", targetUserIds: ids, shadow: ids.some((id) => isMafiaRole(members.find((member) => member.user_id === id)?.role)) })));
+        .bind(context.round_id, context.night_number, action.user_id, JSON.stringify({ type: "spy", targetUserId: action.target_user_id, wokeAtNight })));
+    } else if (action.action_type === "heart") {
+      resultStatements.push(env.DB.prepare("INSERT OR REPLACE INTO mafia_role_results (round_id, night_number, user_id, result_json) VALUES (?, ?, ?, ?)")
+        .bind(context.round_id, context.night_number, action.user_id, JSON.stringify({ type: "heart", targetUserIds: linkedIds })));
     }
   }
-  const result = { type: "night", night: Number(context.night_number), victimId, protected: Boolean(victimId && protectedIds.has(victimId)), eliminatedId };
+  if (elderSurvivedId) resultStatements.push(env.DB.prepare("INSERT OR REPLACE INTO mafia_role_results (round_id, night_number, user_id, result_json) VALUES (?, ?, ?, ?)")
+    .bind(context.round_id, context.night_number, elderSurvivedId, JSON.stringify({ type: "elder_survival" })));
+  const eliminated = [...eliminatedIds];
+  const result = { type: "night", night: Number(context.night_number), victimId, protected: Boolean(victimId && protectedIds.has(victimId)), transformedId, elderSurvivedId, eliminatedIds: eliminated, eliminatedId: eliminated[0] || null };
   const statements = [
-    ...(eliminatedId ? [env.DB.prepare("UPDATE room_members SET alive = 0 WHERE room_id = ? AND user_id = ?").bind(context.room_id, eliminatedId)] : []),
+    ...eliminated.map((id) => env.DB.prepare("UPDATE room_members SET alive = 0 WHERE room_id = ? AND user_id = ?").bind(context.room_id, id)),
+    ...(transformedId ? [env.DB.prepare("UPDATE room_members SET role = ? WHERE room_id = ? AND user_id = ?").bind(WOLF_ROLE, context.room_id, transformedId)] : []),
     ...resultStatements,
     env.DB.prepare("UPDATE mafia_round_state SET last_result_json = ?, updated_at = ? WHERE round_id = ?").bind(JSON.stringify(result), now, context.round_id),
   ];
   await env.DB.batch(statements);
-  const latestMembers = members.map((member) => ({ ...member, alive: eliminatedId === member.user_id ? 0 : member.alive }));
-  const winner = mafiaWinner(latestMembers);
+  const latestMembers = members.map((member) => ({ ...member, role: member.user_id === transformedId ? WOLF_ROLE : member.role, alive: eliminatedIds.has(member.user_id) ? 0 : member.alive }));
+  const winner = mafiaWinner(latestMembers, context.game_type);
   if (winner) await setMafiaPhase(env, context, "results", null, ", winner = ?", [winner]);
   else await setMafiaPhase(env, context, "day", 240, ", vote_round = 1, defense_order = '[]', defense_index = 0, speaker_user_id = NULL, speaker_deadline = NULL, discussion_remaining_seconds = 240", []);
 }
 
 async function beginNextMafiaNight(env, context) {
   await setMafiaPhase(env, context, "night", 75, ", night_number = night_number + 1, vote_round = 1, defense_order = '[]', defense_index = 0, speaker_user_id = NULL, speaker_deadline = NULL, discussion_remaining_seconds = NULL", []);
+}
+
+async function expandWolfEliminations(env, context, members, initialIds) {
+  const eliminatedIds = new Set(initialIds);
+  if (context.game_type !== "wolf") return eliminatedIds;
+  const heartAction = await env.DB.prepare("SELECT targets_json FROM mafia_night_actions WHERE round_id = ? AND action_type = 'heart' ORDER BY night_number LIMIT 1")
+    .bind(context.round_id).first();
+  let linkedIds = [];
+  try { linkedIds = JSON.parse(heartAction?.targets_json || "[]"); } catch (_) { linkedIds = []; }
+  let changed = true;
+  while (changed) {
+    changed = false;
+    if (linkedIds.length === 2 && linkedIds.some((id) => eliminatedIds.has(id))) {
+      linkedIds.forEach((id) => {
+        if (!eliminatedIds.has(id)) { eliminatedIds.add(id); changed = true; }
+      });
+    }
+    for (const id of [...eliminatedIds]) {
+      const member = members.find((entry) => entry.user_id === id);
+      if (member?.role !== "الصياد") continue;
+      const mark = await env.DB.prepare("SELECT target_user_id FROM mafia_night_actions WHERE round_id = ? AND user_id = ? AND action_type = 'hunter_mark' ORDER BY night_number DESC LIMIT 1")
+        .bind(context.round_id, id).first();
+      if (mark?.target_user_id && !eliminatedIds.has(mark.target_user_id)) { eliminatedIds.add(mark.target_user_id); changed = true; }
+    }
+  }
+  return eliminatedIds;
 }
 
 async function finalizeMafiaVote(env, context, members) {
@@ -1687,12 +1777,13 @@ async function finalizeMafiaVote(env, context, members) {
   const now = new Date().toISOString();
   if (leaders.length === 1) {
     const eliminatedId = leaders[0];
+    const eliminatedIds = await expandWolfEliminations(env, context, members, [eliminatedId]);
     await env.DB.batch([
-      env.DB.prepare("UPDATE room_members SET alive = 0 WHERE room_id = ? AND user_id = ?").bind(context.room_id, eliminatedId),
+      ...[...eliminatedIds].map((id) => env.DB.prepare("UPDATE room_members SET alive = 0 WHERE room_id = ? AND user_id = ?").bind(context.room_id, id)),
       env.DB.prepare("UPDATE mafia_round_state SET last_result_json = ?, updated_at = ? WHERE round_id = ?")
-        .bind(JSON.stringify({ type: "vote", voteRound: Number(context.vote_round), eliminatedId, counts }), now, context.round_id),
+        .bind(JSON.stringify({ type: "vote", voteRound: Number(context.vote_round), eliminatedId, eliminatedIds: [...eliminatedIds], counts }), now, context.round_id),
     ]);
-    const winner = mafiaWinner(members.map((member) => ({ ...member, alive: member.user_id === eliminatedId ? 0 : member.alive })));
+    const winner = mafiaWinner(members.map((member) => ({ ...member, alive: eliminatedIds.has(member.user_id) ? 0 : member.alive })), context.game_type);
     if (winner) await setMafiaPhase(env, context, "results", null, ", winner = ?", [winner]);
     else await beginNextMafiaNight(env, context);
     return;
@@ -1721,7 +1812,7 @@ async function finishMafiaSpeech(env, context) {
     await env.DB.prepare("UPDATE mafia_round_state SET speaker_user_id = NULL, speaker_deadline = NULL, phase_deadline = ?, version = version + 1, updated_at = ? WHERE round_id = ?")
       .bind(new Date(Date.now() + remaining * 1000).toISOString(), new Date().toISOString(), context.round_id).run();
   }
-  await notifyGameSync(env, context.code, "day", "mafia");
+  await notifyGameSync(env, context.code, "day", context.game_type || "mafia");
 }
 
 async function runMafiaAutomaticActions(env, initial) {
@@ -1736,7 +1827,7 @@ async function runMafiaAutomaticActions(env, initial) {
       } else break;
     } else if (context.phase === "night") {
       await runMafiaBotNightActions(env, context, members);
-      const required = members.filter((member) => member.alive && mafiaActionType(member.role)).length;
+      const required = members.filter((member) => member.alive && mafiaActionType(member.role, context.game_type, context.night_number)).length;
       const completed = await env.DB.prepare("SELECT COUNT(*) AS count FROM mafia_night_actions WHERE round_id = ? AND night_number = ?").bind(context.round_id, context.night_number).first();
       if (Number(completed.count || 0) >= required || (context.phase_deadline && new Date(context.phase_deadline).getTime() <= now)) await resolveMafiaNight(env, context, members);
       else break;
@@ -1774,14 +1865,14 @@ async function runMafiaAutomaticActions(env, initial) {
 
 async function mafiaState(request, env, code) {
   let context = await activeMafiaContext(env, code);
-  if (!context || context.ended_at || !context.phase) return json({ error: "لم تبدأ جولة المافيا بعد." }, 409);
+  if (!context || context.ended_at || !context.phase) return json({ error: "لم تبدأ جولة الأدوار بعد." }, 409);
   const user = await getUser(request, env);
   const membership = user ? await env.DB.prepare("SELECT role, alive FROM room_members WHERE room_id = ? AND user_id = ?").bind(context.room_id, user.id).first() : null;
   if (context.is_private && !membership) return json({ error: "هذه الغرفة خاصة." }, 403);
   context = await runMafiaAutomaticActions(env, context);
   context = await activeMafiaContext(env, code);
   const members = await mafiaMembers(env, context.room_id);
-  const actionType = membership ? mafiaActionType(membership.role) : null;
+  const actionType = membership ? mafiaActionType(membership.role, context.game_type, context.night_number) : null;
   const action = user && actionType ? await env.DB.prepare("SELECT * FROM mafia_night_actions WHERE round_id = ? AND night_number = ? AND user_id = ? AND action_type = ?")
     .bind(context.round_id, context.night_number, user.id, actionType).first() : null;
   const ready = user ? await env.DB.prepare("SELECT 1 FROM mafia_ready WHERE round_id = ? AND user_id = ?").bind(context.round_id, user.id).first() : null;
@@ -1793,6 +1884,26 @@ async function mafiaState(request, env, code) {
     .bind(context.round_id, context.vote_round).all();
   const privateResult = user ? await env.DB.prepare("SELECT result_json FROM mafia_role_results WHERE round_id = ? AND night_number = ? AND user_id = ?")
     .bind(context.round_id, context.night_number, user.id).first() : null;
+  let selectedTargets = [];
+  let actionMetadata = {};
+  try {
+    const parsed = JSON.parse(action?.targets_json || "null");
+    if (Array.isArray(parsed)) selectedTargets = parsed;
+    else if (parsed && typeof parsed === "object") actionMetadata = parsed;
+  } catch (_) { /* Ignore malformed legacy action metadata. */ }
+  let witch = null;
+  if (membership?.role === "الساحرة") {
+    const uses = (await env.DB.prepare("SELECT targets_json FROM mafia_night_actions WHERE round_id = ? AND user_id = ? AND action_type = 'witch'")
+      .bind(context.round_id, user.id).all()).results.map((entry) => {
+        try { return JSON.parse(entry.targets_json || "{}").mode; } catch (_) { return null; }
+      });
+    const shadowActions = (await env.DB.prepare("SELECT target_user_id FROM mafia_night_actions WHERE round_id = ? AND night_number = ? AND action_type = 'shadow'")
+      .bind(context.round_id, context.night_number).all()).results;
+    const counts = {};
+    shadowActions.forEach((entry) => { if (entry.target_user_id) counts[entry.target_user_id] = Number(counts[entry.target_user_id] || 0) + 1; });
+    const victim = Object.entries(counts).sort((left, right) => right[1] - left[1])[0]?.[0] || null;
+    witch = { victimId: victim, canSave: !uses.includes("save"), canPoison: !uses.includes("poison"), mode: actionMetadata.mode || null };
+  }
   const secondsRemaining = context.phase_deadline ? Math.max(0, Math.ceil((new Date(context.phase_deadline).getTime() - Date.now()) / 1000)) : 0;
   const speakerSeconds = context.speaker_deadline ? Math.max(0, Math.ceil((new Date(context.speaker_deadline).getTime() - Date.now()) / 1000)) : 0;
   let defenseOrder = [];
@@ -1800,23 +1911,23 @@ async function mafiaState(request, env, code) {
   const publicPlayers = members.map((member) => ({
     id: member.user_id, name: member.display_name, avatarType: member.avatar_type, avatarValue: member.avatar_value,
     alive: Boolean(member.alive), bot: isBotId(member.user_id),
-    role: context.phase === "results" || (membership && (member.user_id === user.id || (isMafiaRole(membership.role) && isMafiaRole(member.role)))) ? member.role : null,
+    role: context.phase === "results" || (membership && (member.user_id === user.id || (isPredatorRole(membership.role) && isPredatorRole(member.role)))) ? member.role : null,
   }));
   return json({
-    gameType: "mafia", round: Number(context.number || 1), phase: context.phase, secondsRemaining, speakerSeconds,
+    gameType: context.game_type || "mafia", round: Number(context.number || 1), phase: context.phase, secondsRemaining, speakerSeconds,
     discussionRemainingSeconds: Number(context.discussion_remaining_seconds || secondsRemaining || 0),
     nightNumber: Number(context.night_number), voteRound: Number(context.vote_round), version: Number(context.version),
     players: publicPlayers, speakerId: context.speaker_user_id, defenseOrder, defenseIndex: Number(context.defense_index || 0),
     voteConfirmations: Number(ballotCount.count || 0),
     voteCounts: Object.fromEntries(voteTotals.results.map((entry) => [entry.target_user_id, Number(entry.count)])),
     lastResult: context.last_result_json ? JSON.parse(context.last_result_json) : null, winner: context.winner,
-    me: membership ? { id: user.id, role: membership.role, alive: Boolean(membership.alive), ready: Boolean(ready), actionConfirmed: Boolean(action), selectedTarget: action?.target_user_id || null, selectedTargets: action?.targets_json ? JSON.parse(action.targets_json) : [], voteConfirmed: Boolean(ballot), voteTarget: ballot?.target_user_id || null, privateResult: privateResult ? JSON.parse(privateResult.result_json) : null } : null,
+    me: membership ? { id: user.id, role: membership.role, alive: Boolean(membership.alive), ready: Boolean(ready), actionType, actionConfirmed: Boolean(action), selectedTarget: action?.target_user_id || null, selectedTargets, actionMetadata, witch, voteConfirmed: Boolean(ballot), voteTarget: ballot?.target_user_id || null, privateResult: privateResult ? JSON.parse(privateResult.result_json) : null } : null,
   });
 }
 
 async function mafiaAction(request, env, code, user, actionName) {
   let context = await activeMafiaContext(env, code);
-  if (!context || context.ended_at || !context.phase) return json({ error: "جولة المافيا غير متاحة." }, 409);
+  if (!context || context.ended_at || !context.phase) return json({ error: "جولة الأدوار غير متاحة." }, 409);
   const member = await env.DB.prepare("SELECT role, alive FROM room_members WHERE room_id = ? AND user_id = ?").bind(context.room_id, user.id).first();
   if (!member) return json({ error: "المشاهد لا يستطيع تنفيذ هذه الحركة." }, 403);
   let input = {};
@@ -1827,23 +1938,44 @@ async function mafiaAction(request, env, code, user, actionName) {
     await env.DB.prepare("INSERT OR IGNORE INTO mafia_ready (round_id, user_id, ready_at) VALUES (?, ?, ?)").bind(context.round_id, user.id, now).run();
   } else if (actionName === "night") {
     if (context.phase !== "night" || !member.alive) return json({ error: "ليس لك قرار ليلي الآن." }, 409);
-    const actionType = mafiaActionType(member.role);
+    const actionType = mafiaActionType(member.role, context.game_type, context.night_number);
     if (!actionType) return json({ error: "دورك لا يحتاج إلى قرار هذه الليلة." }, 409);
     const targetIds = [...new Set(Array.isArray(input.targetUserIds) ? input.targetUserIds.map(String) : [])];
     const targetId = clean(input.targetUserId, "", 80);
-    const selectedIds = actionType === "scout" ? targetIds : [targetId];
-    if (actionType === "scout" && selectedIds.length !== 3) return json({ error: "اختر ثلاثة لاعبين بالضبط." }, 400);
-    if (actionType !== "scout" && !targetId) return json({ error: "اختر لاعباً أولاً." }, 400);
-    const placeholders = selectedIds.map(() => "?").join(",");
-    const valid = await env.DB.prepare(`SELECT COUNT(*) AS count FROM room_members WHERE room_id = ? AND alive = 1 AND user_id IN (${placeholders})`).bind(context.room_id, ...selectedIds).first();
-    if (Number(valid.count || 0) !== selectedIds.length || selectedIds.includes(user.id)) return json({ error: "الاختيار غير صالح." }, 400);
+    const witchMode = ["save", "poison", "pass"].includes(input.mode) ? input.mode : null;
+    const selectedIds = actionType === "heart" ? targetIds : targetId ? [targetId] : [];
+    if (actionType === "heart" && selectedIds.length !== 2) return json({ error: "اختر لاعبين اثنين بالضبط." }, 400);
+    if (actionType === "witch" && !witchMode) return json({ error: "اختر الجرعة أو مرّر دورك." }, 400);
+    if (actionType === "witch" && witchMode === "poison" && !targetId) return json({ error: "اختر هدف جرعة الإقصاء." }, 400);
+    if (actionType !== "heart" && actionType !== "witch" && !targetId) return json({ error: "اختر لاعباً أولاً." }, 400);
+    if (selectedIds.length) {
+      const placeholders = selectedIds.map(() => "?").join(",");
+      const valid = await env.DB.prepare(`SELECT COUNT(*) AS count FROM room_members WHERE room_id = ? AND alive = 1 AND user_id IN (${placeholders})`).bind(context.room_id, ...selectedIds).first();
+      if (Number(valid.count || 0) !== selectedIds.length || selectedIds.includes(user.id)) return json({ error: "الاختيار غير صالح." }, 400);
+    }
     if (actionType === "shadow") {
       const shadowTarget = await env.DB.prepare("SELECT role FROM room_members WHERE room_id = ? AND user_id = ?").bind(context.room_id, targetId).first();
-      if (isMafiaRole(shadowTarget?.role)) return json({ error: "لا يمكن استهداف عضو من المافيا." }, 400);
+      if (isPredatorRole(shadowTarget?.role)) return json({ error: "لا يمكن استهداف شريك من فريقك." }, 400);
+    }
+    let metadata = actionType === "heart" ? JSON.stringify(selectedIds) : null;
+    if (actionType === "witch") {
+      const previousUses = (await env.DB.prepare("SELECT targets_json FROM mafia_night_actions WHERE round_id = ? AND user_id = ? AND action_type = 'witch'")
+        .bind(context.round_id, user.id).all()).results.map((entry) => {
+          try { return JSON.parse(entry.targets_json || "{}").mode; } catch (_) { return null; }
+        });
+      if (witchMode !== "pass" && previousUses.includes(witchMode)) return json({ error: "استعملت هذه الجرعة من قبل." }, 409);
+      if (witchMode === "save") {
+        const shadowActions = (await env.DB.prepare("SELECT target_user_id FROM mafia_night_actions WHERE round_id = ? AND night_number = ? AND action_type = 'shadow'")
+          .bind(context.round_id, context.night_number).all()).results;
+        const counts = {};
+        shadowActions.forEach((entry) => { if (entry.target_user_id) counts[entry.target_user_id] = Number(counts[entry.target_user_id] || 0) + 1; });
+        if (!Object.keys(counts).length) return json({ error: "انتظر قرار الذئاب قبل استعمال جرعة الإنقاذ." }, 409);
+      }
+      metadata = JSON.stringify({ mode: witchMode });
     }
     await env.DB.prepare(`INSERT INTO mafia_night_actions (round_id, night_number, user_id, action_type, target_user_id, targets_json, confirmed_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)`)
-      .bind(context.round_id, context.night_number, user.id, actionType, actionType === "scout" ? null : targetId, actionType === "scout" ? JSON.stringify(selectedIds) : null, now).run();
+      .bind(context.round_id, context.night_number, user.id, actionType, actionType === "heart" || (actionType === "witch" && witchMode !== "poison") ? null : targetId || null, metadata, now).run();
   } else if (actionName === "vote") {
     if (context.phase !== "vote" || !member.alive) return json({ error: "صندوق التصويت غير مفتوح لك." }, 409);
     const targetId = clean(input.targetUserId, "", 80);
@@ -1885,12 +2017,12 @@ async function mafiaAction(request, env, code, user, actionName) {
     else {
       await env.DB.prepare("UPDATE mafia_round_state SET defense_index = ?, phase_deadline = ?, version = version + 1, updated_at = ? WHERE round_id = ?")
         .bind(nextIndex, new Date(Date.now() + 90000).toISOString(), now, context.round_id).run();
-      await notifyGameSync(env, code, "defense", "mafia");
+      await notifyGameSync(env, code, "defense", context.game_type || "mafia");
     }
     return json({ ok: true });
   } else return json({ error: "الحركة غير صالحة." }, 400);
   context = await runMafiaAutomaticActions(env, await activeMafiaContext(env, code));
-  await notifyGameSync(env, code, context?.phase || null, "mafia");
+  await notifyGameSync(env, code, context?.phase || null, context?.game_type || "mafia");
   return json({ ok: true, phase: context?.phase || null });
 }
 
@@ -1909,7 +2041,7 @@ async function startRoom(request, env, code, user) {
   const botsAdded = await fillRoomWithBots(env, room.id, round?.id, 5);
   const members = await env.DB.prepare("SELECT user_id FROM room_members WHERE room_id = ? ORDER BY joined_at").bind(room.id).all();
   if (members.results.length < 5) return json({ error: "تعذر تجهيز العدد الأدنى من اللاعبين." }, 409);
-  const deck = roleDeck(members.results.length, input.options || {});
+  const deck = roleDeck(members.results.length, room.game_type);
   const now = new Date().toISOString();
   await env.DB.batch([
     ...members.results.map((member, index) => env.DB.prepare("UPDATE room_members SET role = ?, alive = 1, round_id = ? WHERE room_id = ? AND user_id = ?").bind(deck[index], round.id, room.id, member.user_id)),
@@ -1921,12 +2053,13 @@ async function startRoom(request, env, code, user) {
     env.DB.prepare("UPDATE rooms SET status = 'playing' WHERE id = ?").bind(room.id),
   ]);
   const myRole = deck[members.results.findIndex((member) => member.user_id === user.id)];
-  const partners = isMafiaRole(myRole) ? (await env.DB.prepare(`
-    SELECT u.id, u.display_name AS name FROM room_members m JOIN users u ON u.id = m.user_id
-    WHERE m.room_id = ? AND m.user_id != ? AND m.role IN ('عضو المافيا', 'أفراد الظل')
+  const partnerRows = isPredatorRole(myRole) ? (await env.DB.prepare(`
+    SELECT u.id, u.display_name AS name, m.role FROM room_members m JOIN users u ON u.id = m.user_id
+    WHERE m.room_id = ? AND m.user_id != ?
   `).bind(room.id, user.id).all()).results : [];
-  await notifyGameSync(env, code, "reveal", "mafia");
-  return json({ started: true, role: myRole, partners, botsAdded: botsAdded.length, phase: "reveal" });
+  const partners = partnerRows.filter((entry) => room.game_type === "wolf" ? isWolfRole(entry.role) : isMafiaRole(entry.role)).map(({ id, name }) => ({ id, name }));
+  await notifyGameSync(env, code, "reveal", room.game_type);
+  return json({ started: true, gameType: room.game_type, role: myRole, partners, botsAdded: botsAdded.length, phase: "reveal" });
 }
 
 async function myRoomState(env, code, user) {
@@ -1936,10 +2069,11 @@ async function myRoomState(env, code, user) {
   `).bind(code, user.id).first();
   if (!row || row.ended_at) return json({ error: "انتهت هذه الجولة.", ended: true }, 410);
   const room = await roomRecord(env, code);
-  const partners = isMafiaRole(row.role) ? (await env.DB.prepare(`
-    SELECT u.id, u.display_name AS name FROM room_members m JOIN users u ON u.id = m.user_id
-    WHERE m.room_id = ? AND m.user_id != ? AND m.role IN ('عضو المافيا', 'أفراد الظل')
+  const partnerRows = isPredatorRole(row.role) ? (await env.DB.prepare(`
+    SELECT u.id, u.display_name AS name, m.role FROM room_members m JOIN users u ON u.id = m.user_id
+    WHERE m.room_id = ? AND m.user_id != ?
   `).bind(room.id, user.id).all()).results : [];
+  const partners = partnerRows.filter((entry) => room.game_type === "wolf" ? isWolfRole(entry.role) : isMafiaRole(entry.role)).map(({ id, name }) => ({ id, name }));
   return json({ status: row.status, gameType: room.game_type || "mafia", role: row.role, alive: Boolean(row.alive), partners });
 }
 
@@ -1960,7 +2094,7 @@ async function createLiveKitToken(request, env) {
   const user = await getUser(request, env);
   const member = user ? await env.DB.prepare("SELECT role, alive FROM room_members WHERE room_id = ? AND user_id = ?").bind(room.room_id, user.id).first() : null;
   if (room.is_private && !member) return json({ error: "هذه الغرفة خاصة." }, 403);
-  if (channel === "shadow" && (!member || !isMafiaRole(member.role) || !member.alive)) return json({ error: "قناة المافيا غير متاحة لدورك." }, 403);
+  if (channel === "shadow" && (!member || !isPredatorRole(member.role) || !member.alive)) return json({ error: "القناة السرية غير متاحة لدورك." }, 403);
 
   const spectator = !member;
   const canPublish = Boolean(member?.alive);
@@ -2326,7 +2460,7 @@ export class RoomChat {
     const member = user ? await this.env.DB.prepare("SELECT role, alive FROM room_members WHERE room_id = ? AND user_id = ?").bind(room.room_id, user.id).first() : null;
     if (room.is_private && !member) return json({ error: "هذه الغرفة خاصة." }, 403);
     const allowedChannels = ["public"];
-    if (isMafiaRole(member?.role)) allowedChannels.push("mafia");
+    if (isPredatorRole(member?.role)) allowedChannels.push("mafia");
     if (member && !member.alive) allowedChannels.push("dead");
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
@@ -2365,7 +2499,7 @@ export class RoomChat {
     attachment.name = membership.display_name;
     attachment.initial = membership.display_name.charAt(0);
     attachment.allowedChannels = ["public"];
-    if (isMafiaRole(membership.role)) attachment.allowedChannels.push("mafia");
+    if (isPredatorRole(membership.role)) attachment.allowedChannels.push("mafia");
     if (!membership.alive) attachment.allowedChannels.push("dead");
     const channel = ["public", "mafia", "dead"].includes(incoming.channel) ? incoming.channel : "public";
     if (!attachment.allowedChannels.includes(channel)) return ws.send(JSON.stringify({ type: "error", message: "هذه القناة غير متاحة لدورك." }));

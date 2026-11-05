@@ -6,10 +6,10 @@ import {
   resetForNight,
   startDay,
   startVote,
-} from "./state.js?v=43";
+} from "./state.js?v=44";
 import { roomChat } from "./services/room-chat.js?v=40";
 import { liveKitVoice } from "./services/livekit-voice.js?v=21";
-import { gameAudio } from "./services/game-audio.js?v=43";
+import { gameAudio } from "./services/game-audio.js?v=44";
 
 const $ = (selector, scope = document) => scope.querySelector(selector);
 const $$ = (selector, scope = document) => [...scope.querySelectorAll(selector)];
@@ -28,19 +28,31 @@ let scheduledBotVoteKey = "";
 let selectedProfileAvatar = "mask-01";
 let gameRenderDeferred = false;
 const chatDrafts = { public: "", mafia: "", dead: "" };
-const MAFIA_ROLE = "عضو المافيا";
-const LEGACY_MAFIA_ROLE = "أفراد الظل";
+const MAFIA_ROLE = "المافيا";
+const WOLF_ROLE = "الذئب";
+const LEGACY_ROLE_NAMES = new Map([
+  ["عضو المافيا", MAFIA_ROLE], ["أفراد الظل", MAFIA_ROLE], ["المُنقذ", "الطبيب"], ["البريء", "المواطن الصالح"],
+]);
 
 function isMafiaRole(role) {
-  return role === MAFIA_ROLE || role === LEGACY_MAFIA_ROLE;
+  return normalizedRole(role) === MAFIA_ROLE;
+}
+
+function isWolfRole(role) {
+  return normalizedRole(role) === WOLF_ROLE;
+}
+
+function isPredatorRole(role) {
+  return isMafiaRole(role) || isWolfRole(role);
 }
 
 function normalizedRole(role) {
-  return role === LEGACY_MAFIA_ROLE ? MAFIA_ROLE : role;
+  return LEGACY_ROLE_NAMES.get(role) || role;
 }
 
 const gameDefaults = {
   mafia: { gameType: "mafia", slug: "mafia", name: "المافيا", eyebrow: "لعبة الأدوار والاستنتاج", shortDescription: "اكشف أعضاء المافيا عبر النقاش والأدوار السرية قبل أن يسيطروا على الجولة." },
+  wolf: { gameType: "wolf", slug: "loup-garou", name: "ذئاب القرية", eyebrow: "القرية تنام… والذئاب تستيقظ", shortDescription: "احمِ القرية، اكشف الذئاب واستعمل قدراتك السرية قبل أن يبتلع الليل الجميع." },
   imposter: { gameType: "imposter", slug: "aldakhil", name: "الدخيل", eyebrow: "كلمة واحدة وشكوك كثيرة", shortDescription: "يعرف الجميع الكلمة إلا الدخيل. اسألوا بعضكم واكشفوه قبل أن يخمّن السر." },
   bluff: { gameType: "bluff", slug: "bluff-card", name: "بطاقة الخداع", eyebrow: "تُصدّق الادعاء… أم تكشف الكذبة؟", shortDescription: "مرّر البطاقة مقلوبة وادّعِ ما تشاء. اكشف كذب خصومك، وتجنّب تراكم البطاقات أمامك." },
 };
@@ -131,6 +143,10 @@ function isImposterRoom() {
 
 function isBluffRoom() {
   return activeGameType() === "bluff";
+}
+
+function isWolfRoom() {
+  return activeGameType() === "wolf";
 }
 
 function normalizeRoomCode(value) {
@@ -233,7 +249,7 @@ function syncPlayersFromRoom(members = []) {
       alive: member.alive,
       connected: true,
       bot: Boolean(member.bot),
-      role: normalizedRole(member.role || previous?.role || "البريء"),
+      role: normalizedRole(member.role || previous?.role || "المواطن الصالح"),
       avatarType: member.avatarType,
       avatarValue: member.avatarValue,
       avatarUrl: member.avatarType === "upload" ? `/api/profile/avatar/${member.id}` : null,
@@ -276,7 +292,7 @@ function desiredVoiceChannel() {
   if (state.route !== "game" || !activeRoomCode()) return null;
   if (isImposterRoom()) return "public";
   const me = state.players.find((player) => player.id === "me");
-  if (state.phase === "night") return !state.spectator && me?.alive && isMafiaRole(me.role) ? "shadow" : null;
+  if (state.phase === "night") return !state.spectator && me?.alive && isPredatorRole(me.role) ? "shadow" : null;
   return "public";
 }
 
@@ -394,14 +410,19 @@ function refreshVoiceParticipants() {
 }
 
 const roleDetails = {
-  "عضو المافيا": { label: "أنت عضو في المافيا", symbol: "♛", description: "تتفق سراً مع فريقك ليلاً على الهدف، وتحاول إبعاد الشك عنك نهاراً." },
-  "المُنقذ": { label: "أنت المُنقذ", symbol: "+", description: "تحمي لاعباً واحداً كل ليلة من هجوم المافيا. اختر بحذر ولا تكشف نفسك." },
+  "المافيا": { label: "أنت من المافيا", symbol: "♛", description: "تتفق سراً مع فريقك ليلاً على الهدف، وتحاول إبعاد الشك عنك نهاراً." },
+  "المواطن الصالح": { label: "أنت المواطن الصالح", symbol: "◆", description: "راقب الكلام والتصويت، واكشف المافيا قبل أن تسيطر على الجولة." },
+  "الطبيب": { label: "أنت الطبيب", symbol: "+", description: "تحمي لاعباً واحداً كل ليلة من هجوم المافيا. اختر بحذر ولا تكشف نفسك." },
   "الشيخ": { label: "أنت الشيخ — كاشف الأسرار", symbol: "⌕", description: "تفحص لاعباً واحداً كل ليلة لتعرف إن كان عضواً في المافيا." },
-  "الساحرة": { label: "أنت الساحرة — حارسة الجرعات", symbol: "✦", description: "لديك جرعة إنقاذ وأخرى للإقصاء، وتُستعمل كل واحدة مرة واحدة في المباراة." },
-  "الخطّابة": { label: "أنت الخطّابة — رابطة القلوب", symbol: "♥", description: "تربط لاعبين بمصير واحد في البداية، ثم تلعب مع الأبرياء." },
-  "الكشّاف": { label: "أنت الكشّاف", symbol: "◉", description: "تفحص ثلاثة لاعبين ليلاً، وتعرف إن كان بينهم عضو من المافيا دون كشف هويته." },
-  "عين الليل": { label: "عين الليل — اسم مقترح", symbol: "◐", description: "دور تجسس ليلي قيد الموازنة، ولن يدخل التوزيع قبل اعتماد آلية عادلة." },
-  "البريء": { label: "أنت البريء", symbol: "◆", description: "راقب الكلام والتصويت، واكشف أعضاء المافيا قبل أن يسيطروا على اللعبة." },
+  "الذئب": { label: "أنت الذئب", symbol: "🐺", description: "اتفق مع الذئاب ليلاً على ضحية، واخفِ حقيقتك وسط سكان القرية نهاراً." },
+  "ساكن القرية": { label: "أنت ساكن القرية", symbol: "⌂", description: "لا تملك قدرة ليلية؛ راقب النقاش والتصويت واكشف الذئاب." },
+  "العرّافة": { label: "أنت العرّافة", symbol: "◉", description: "تفحص لاعباً واحداً كل ليلة لتعرف سراً إن كان ذئباً." },
+  "الساحرة": { label: "أنت الساحرة", symbol: "✦", description: "لديك جرعة إنقاذ وجرعة إقصاء؛ كل جرعة تُستعمل مرة واحدة." },
+  "الصياد": { label: "أنت الصياد", symbol: "⌁", description: "حدّد هدفك كل ليلة؛ إن متّ يخرج الهدف الذي علّمته معك." },
+  "عين الليل": { label: "أنت عين الليل", symbol: "◐", description: "راقب لاعباً لتعرف إن كان يستيقظ ليلاً، من دون كشف دوره الحقيقي." },
+  "رابطة القلوب": { label: "أنت رابطة القلوب", symbol: "♥", description: "في الليلة الأولى اربط لاعبين؛ إذا مات أحدهما لحق به الآخر." },
+  "الملعون": { label: "أنت الملعون", symbol: "☾", description: "إن هاجمتك الذئاب أول مرة لا تموت، بل تتحول إلى ذئب." },
+  "العجوز": { label: "أنت العجوز", symbol: "◇", description: "تنجو من أول هجوم للذئاب، لكن الهجوم الثاني يقضي عليك." },
 };
 
 function shuffle(items) {
@@ -416,12 +437,16 @@ function shuffle(items) {
 function distributeRoles() {
   const count = state.players.length;
   const mafiaCount = count >= 16 ? 4 : count >= 12 ? 3 : count >= 8 ? 2 : 1;
-  const deck = Array(mafiaCount).fill(MAFIA_ROLE);
-  if (count >= 5) deck.push("المُنقذ", "الشيخ");
-  if (count >= 8 && deck.length < count) deck.push("الكشّاف");
-  if (state.options.witch && deck.length < count) deck.push("الساحرة");
-  if (state.options.cupid && deck.length < count) deck.push("الخطّابة");
-  while (deck.length < count) deck.push("البريء");
+  const deck = Array(mafiaCount).fill(isWolfRoom() ? WOLF_ROLE : MAFIA_ROLE);
+  if (isWolfRoom()) {
+    ["العرّافة", "الساحرة", "الصياد", "عين الليل", "رابطة القلوب", "الملعون", "العجوز"].forEach((role, index) => {
+      if (count >= index + 5 && deck.length < count) deck.push(role);
+    });
+    while (deck.length < count) deck.push("ساكن القرية");
+  } else {
+    if (count >= 5) deck.push("الطبيب", "الشيخ");
+    while (deck.length < count) deck.push("المواطن الصالح");
+  }
   const distributed = shuffle(deck);
   state.players.forEach((player, index) => { player.role = distributed[index]; });
 }
@@ -432,18 +457,18 @@ function prepareRoleReveal(serverRole = null, serverPartners = []) {
   const me = state.players.find((player) => player.id === "me");
   if (!me) return;
   if (serverRole) me.role = normalizedRole(serverRole);
-  if (isMafiaRole(serverRole)) {
+  if (isPredatorRole(serverRole)) {
     serverPartners.forEach((partner) => {
       const player = state.players.find((item) => item.rawId === partner.id);
-      if (player) player.role = MAFIA_ROLE;
+      if (player) player.role = serverRole === WOLF_ROLE ? WOLF_ROLE : MAFIA_ROLE;
     });
   }
-  const details = roleDetails[me?.role] || roleDetails["البريء"];
-  const partners = state.players.filter((player) => player.id !== "me" && isMafiaRole(player.role));
+  const details = roleDetails[me?.role] || roleDetails[isWolfRoom() ? "ساكن القرية" : "المواطن الصالح"];
+  const partners = state.players.filter((player) => player.id !== "me" && isPredatorRole(player.role));
   $("#revealedRoleName").textContent = details.label;
   $("#revealedRoleDescription").textContent = details.description;
   $("#roleSymbol").textContent = details.symbol;
-  $("#rolePartner").innerHTML = isMafiaRole(me?.role) && partners.length ? `<div class="partner"><span class="avatar ${partners[0].accent}">${escapeHtml(partners[0].initial)}</span><div><small>شركاؤك في المافيا</small><strong>${partners.map((player) => escapeHtml(player.name)).join("، ")}</strong></div><span class="online-dot"></span></div>` : "";
+  $("#rolePartner").innerHTML = isPredatorRole(me?.role) && partners.length ? `<div class="partner"><span class="avatar ${partners[0].accent}">${escapeHtml(partners[0].initial)}</span><div><small>${isWolfRole(me?.role) ? "شركاؤك من الذئاب" : "شركاؤك في المافيا"}</small><strong>${partners.map((player) => escapeHtml(player.name)).join("، ")}</strong></div><span class="online-dot"></span></div>` : "";
   $("#roleDialog").classList.remove("is-revealed");
   $("#roleRevealActions").hidden = true;
   roleRevealRemaining = 30;
@@ -475,7 +500,7 @@ async function enterGameAfterRole() {
 }
 
 function currentPlayerRole() {
-  return state.players.find((player) => player.id === "me")?.role || "البريء";
+  return state.players.find((player) => player.id === "me")?.role || (isWolfRoom() ? "ساكن القرية" : "المواطن الصالح");
 }
 
 async function beginNightNarration() {
@@ -775,9 +800,11 @@ function renderGameLanding() {
   const page = gamePage();
   const imposter = state.selectedGameType === "imposter";
   const bluff = state.selectedGameType === "bluff";
+  const wolf = state.selectedGameType === "wolf";
   $("#gameLandingHero").classList.toggle("imposter", imposter);
   $("#gameLandingHero").classList.toggle("bluff", bluff);
-  $("#gameLandingSymbol").textContent = imposter ? "؟" : bluff ? "▰" : "♛";
+  $("#gameLandingHero").classList.toggle("wolf", wolf);
+  $("#gameLandingSymbol").textContent = imposter ? "؟" : bluff ? "▰" : wolf ? "🐺" : "♛";
   $("#gameLandingEyebrow").textContent = page.eyebrow;
   $("#gameLandingTitle").textContent = page.name;
   $("#gameLandingDescription").textContent = page.shortDescription;
@@ -789,6 +816,10 @@ function renderGameLanding() {
     ["ادّعِ", "مرّر بطاقة مقلوبة وقل الحقيقة أو غيّر نوعها كما تشاء."],
     ["احكم أو مرّر", "اكشف صدق الادعاء، أو شاهد البطاقة ومرّرها للاعب جديد."],
     ["تجنّب العقوبات", "تُقصى عند جمع أربع بطاقات من نوع واحد أو الأنواع الثمانية."],
+  ] : wolf ? [
+    ["الليل", "تستيقظ الذئاب والأدوار الخاصة، ويتخذ كل دور قراره سراً."],
+    ["القرية", "ناقشوا الشكوك واستعملوا قدرات العرّافة والساحرة وعين الليل."],
+    ["التصويت", "اطردوا ذئباً قبل أن يصبح عدد الذئاب مساوياً لبقية السكان."],
   ] : [
     ["الليل", "تتحرك الأدوار سراً ويتخذ كل دور قراره."],
     ["النقاش", "صوت ودردشة وطابور منظم للكلام."],
@@ -842,7 +873,7 @@ async function loadMafiaState() {
   if (data.me?.role) data.me.role = normalizedRole(data.me.role);
   const previous = state.mafiaGame;
   state.mafiaGame = data;
-  state.selectedGameType = "mafia";
+  state.selectedGameType = data.gameType || "mafia";
   state.round = data.round || 1;
   state.phase = data.phase;
   state.phaseRemaining = data.speakerId ? data.speakerSeconds : data.secondsRemaining;
@@ -854,7 +885,7 @@ async function loadMafiaState() {
   state.selectedTarget = data.me?.selectedTarget ? mafiaClientId(data.me.selectedTarget) : null;
   state.scoutTargets = (data.me?.selectedTargets || []).map(mafiaClientId);
   state.nightChoiceConfirmed = Boolean(data.me?.actionConfirmed);
-  state.scoutResult = data.me?.privateResult?.type === "scout" ? Boolean(data.me.privateResult.shadow) : null;
+  state.scoutResult = null;
   state.voteRound = data.voteRound || 1;
   state.voteRemaining = data.secondsRemaining || 0;
   state.voteConfirmed = Boolean(data.me?.voteConfirmed);
@@ -874,8 +905,10 @@ async function loadMafiaState() {
   if (previous?.round && previous.round !== data.round) state.mafiaRoleRevealed = false;
   const resultKey = data.lastResult ? JSON.stringify(data.lastResult) : "";
   if (resultKey && resultKey !== previous?._resultKey) {
-    const eliminated = state.players.find((player) => player.rawId === data.lastResult.eliminatedId);
-    state.history.push({ round: data.round, title: data.lastResult.type === "night" ? "نتيجة الليل" : "التصويت العام", result: data.lastResult.protected ? "أُحبط هجوم المافيا." : eliminated ? `${eliminated.name} خرج من الجولة.` : "لم يُقصَ أي لاعب.", voters: [], tie: data.lastResult.type?.includes("tie") });
+    const eliminatedNames = (data.lastResult.eliminatedIds || [data.lastResult.eliminatedId]).filter(Boolean).map((id) => state.players.find((player) => player.rawId === id)?.name).filter(Boolean);
+    const attackName = data.gameType === "wolf" ? "الذئاب" : "المافيا";
+    const resultText = data.lastResult.transformedId ? "هاجمت الذئاب الملعون فتحوّل إلى ذئب." : data.lastResult.elderSurvivedId ? "نجا العجوز من الهجوم الأول." : data.lastResult.protected ? `أُحبط هجوم ${attackName}.` : eliminatedNames.length ? `${eliminatedNames.join(" و")} خرجوا من الجولة.` : "لم يُقصَ أي لاعب.";
+    state.history.push({ round: data.round, title: data.lastResult.type === "night" ? "نتيجة الليل" : "التصويت العام", result: resultText, voters: [], tie: data.lastResult.type?.includes("tie") });
   }
   state.mafiaGame._resultKey = resultKey;
   return data;
@@ -977,6 +1010,7 @@ function renderLobby() {
   const activeRoom = state.rooms.find((room) => room.id === state.activeRoomId);
   const imposter = activeRoom?.gameType === "imposter";
   const bluff = activeRoom?.gameType === "bluff";
+  const wolf = activeRoom?.gameType === "wolf";
   const isHost = Boolean(state.account && activeRoom?.hostUserId === state.account.id);
   const hasTwoRings = state.players.length > 10;
   const firstRingCount = hasTwoRings ? Math.ceil(state.players.length / 2) : state.players.length;
@@ -995,21 +1029,20 @@ function renderLobby() {
   $("#playerCount").textContent = state.players.length;
   $(".player-total span").textContent = `/ ${activeRoom?.capacity || (imposter ? 18 : bluff ? 5 : 20)}`;
   $("#tablePlayerCount").textContent = state.players.length;
-  $("#lobbyRoomName").textContent = activeRoom?.name || (imposter ? "مجلس الدخيل" : bluff ? "طاولة بطاقة الخداع" : "مجلس قِناع");
-  $("#lobbyRoomKicker").textContent = imposter ? "غرفة الدخيل" : bluff ? "غرفة بطاقة الخداع" : "غرفة المافيا";
-  $("#settingsTitle").textContent = imposter ? "قواعد الدخيل" : bluff ? "قواعد بطاقة الخداع" : "إعدادات الجولة";
+  $("#lobbyRoomName").textContent = activeRoom?.name || (imposter ? "مجلس الدخيل" : bluff ? "طاولة بطاقة الخداع" : wolf ? "قرية الذئاب" : "مجلس قِناع");
+  $("#lobbyRoomKicker").textContent = imposter ? "غرفة الدخيل" : bluff ? "غرفة بطاقة الخداع" : wolf ? "غرفة ذئاب القرية" : "غرفة المافيا";
+  $("#settingsTitle").textContent = imposter ? "قواعد الدخيل" : bluff ? "قواعد بطاقة الخداع" : wolf ? "أدوار ذئاب القرية" : "إعدادات الجولة";
   $("#settingsSubtitle").textContent = imposter || bluff ? "تتكيّف تلقائياً مع عدد اللاعبين" : "توزيع ذكي حسب العدد";
-  $$('[data-mafia-setting]').forEach((row) => { row.hidden = imposter || bluff; });
+  $$('[data-mafia-setting]').forEach((row) => { row.hidden = imposter || bluff || wolf; });
+  $$('[data-wolf-setting]').forEach((row) => { row.hidden = !wolf; });
   $$('[data-imposter-setting]').forEach((row) => { row.hidden = !imposter; });
   $$('[data-bluff-setting]').forEach((row) => { row.hidden = !bluff; });
   const minimum = imposter ? 4 : bluff ? 3 : 5;
   $("#minimumHint").textContent = state.spectator ? "الجولة لم تبدأ بعد؛ ستنتقل إلى المشاهدة عند بدئها" : !isHost ? "في انتظار أن يبدأ المضيف الجولة" : state.players.length >= minimum ? `كل شيء جاهز · ${state.players.length} لاعبين` : `سيضيف قِناع ${minimum - state.players.length} روبوتات تلقائياً عند البدء`;
   $("#startGameButton").disabled = !isHost || state.spectator;
-  $("#startGameButton span").textContent = imposter ? "بدء لعبة الدخيل" : bluff ? "بدء بطاقة الخداع" : "بدء الجولة";
+  $("#startGameButton span").textContent = imposter ? "بدء لعبة الدخيل" : bluff ? "بدء بطاقة الخداع" : wolf ? "بدء ذئاب القرية" : "بدء المافيا";
   $("#leaveLobbyButton").textContent = state.spectator ? "مغادرة المشاهدة" : "مغادرة الغرفة";
   $(".host-note").hidden = !isHost || state.spectator;
-  $("#cupidToggle").checked = state.options.cupid;
-  $("#witchToggle").checked = state.options.witch;
   $("#privateRoomToggle").checked = state.options.privateRoom;
   $("#spectatorCount").textContent = state.spectators.length;
   $("#spectatorList").innerHTML = state.spectators.length ? state.spectators.map((spectator) => `
@@ -1458,7 +1491,10 @@ function mafiaResultsTemplate() {
   const shadowsWon = state.mafiaGame?.winner === "shadows";
   const activeRoom = state.rooms.find((room) => room.id === state.activeRoomId);
   const isHost = Boolean(state.account && activeRoom?.hostUserId === state.account.id);
-  return `<div class="game-stage"><section class="stage-hero"><span class="mock-flag">انتهت الجولة</span><div class="eyebrow"><span></span> كُشفت الأدوار</div><h1>${shadowsWon ? "فازت المافيا" : "فاز الأبرياء"}</h1><p>${shadowsWon ? "وصلت المافيا إلى السيطرة على المجلس." : "نجح المجلس في إقصاء جميع أعضاء المافيا."}</p></section><div class="roster-grid">${state.players.map((player) => `<div class="roster-card ${player.alive ? "" : "is-dead"}">${avatar(player)}<div><strong>${escapeHtml(player.name)}</strong><small>${escapeHtml(normalizedRole(player.role) || "دور مخفي")}</small></div></div>`).join("")}</div><div class="imposter-result-actions">${isHost ? '<button class="button button-primary full" data-action="end-round">إنهاء الغرفة والعودة للرئيسية</button>' : ""}<button class="button button-secondary full" data-action="leave-room">مغادرة الغرفة</button></div></div>`;
+  const wolfGame = isWolfRoom();
+  const predatorName = wolfGame ? "الذئاب" : "المافيا";
+  const villageName = wolfGame ? "سكان القرية" : "المواطنون الصالحون";
+  return `<div class="game-stage"><section class="stage-hero"><span class="mock-flag">انتهت الجولة</span><div class="eyebrow"><span></span> كُشفت الأدوار</div><h1>${shadowsWon ? `فازت ${predatorName}` : `فاز ${villageName}`}</h1><p>${shadowsWon ? `وصلت ${predatorName} إلى السيطرة على الجولة.` : `نجح ${villageName} في إقصاء جميع ${predatorName}.`}</p></section><div class="roster-grid">${state.players.map((player) => `<div class="roster-card ${player.alive ? "" : "is-dead"}">${avatar(player)}<div><strong>${escapeHtml(player.name)}</strong><small>${escapeHtml(normalizedRole(player.role) || "دور مخفي")}</small></div></div>`).join("")}</div><div class="imposter-result-actions">${isHost ? '<button class="button button-primary full" data-action="end-round">إنهاء الغرفة والعودة للرئيسية</button>' : ""}<button class="button button-secondary full" data-action="leave-room">مغادرة الغرفة</button></div></div>`;
 }
 
 function renderGame() {
@@ -1503,27 +1539,46 @@ function renderGame() {
 }
 
 function nightTemplate() {
+  const wolfGame = isWolfRoom();
+  const enemyName = wolfGame ? "الذئاب" : "المافيا";
   if (state.spectator) {
-    return `<div class="game-stage"><section class="stage-hero spectator-night"><span class="mock-flag">معلومات محجوبة</span><div class="eyebrow"><span></span> الليل جارٍ</div><h1>اللاعبون نائمون</h1><p>أنت تشاهد فقط. اختيارات الأدوار وقنوات المافيا السرية مخفية حتى لا تنكشف اللعبة.</p></section><div class="spectator-wait">${icon("lock")}<strong>ننتظر شروق النهار</strong><small>ستنتقل المشاهدة تلقائياً عند انتهاء المرحلة.</small></div></div>`;
+    return `<div class="game-stage"><section class="stage-hero spectator-night"><span class="mock-flag">معلومات محجوبة</span><div class="eyebrow"><span></span> الليل جارٍ</div><h1>اللاعبون نائمون</h1><p>أنت تشاهد فقط. اختيارات الأدوار والقنوات السرية مخفية حتى لا تنكشف اللعبة.</p></section><div class="spectator-wait">${icon("lock")}<strong>ننتظر شروق النهار</strong><small>ستنتقل المشاهدة تلقائياً عند انتهاء المرحلة.</small></div></div>`;
   }
   const me = state.players.find((player) => player.id === "me");
   const roleActions = {
-    "عضو المافيا": { eyebrow: "قناة المافيا الخاصة", title: "اختاروا هدف الليلة", description: "لا يرى هذا القرار سوى أعضاء المافيا. اختاروا لاعباً ثم أكدوا القرار.", target: "الهدف المقترح" },
-    "المُنقذ": { eyebrow: "قرار المُنقذ", title: "من ستحمي الليلة؟", description: "اختر لاعباً واحداً لحمايته من هجوم المافيا هذه الليلة.", target: "اللاعب المحمي" },
+    "المافيا": { eyebrow: "قناة المافيا الخاصة", title: "اختاروا هدف الليلة", description: "لا يرى هذا القرار سوى المافيا. اختاروا لاعباً ثم أكدوا القرار.", target: "الهدف المقترح" },
+    "الذئب": { eyebrow: "عواء الذئاب", title: "اختاروا ضحية الليلة", description: "لا يرى هذا القرار سوى الذئاب. اختاروا ساكناً ثم أكدوا القرار.", target: "الضحية المقترحة" },
+    "الطبيب": { eyebrow: "قرار الطبيب", title: "من ستحمي الليلة؟", description: "اختر لاعباً واحداً لحمايته من هجوم المافيا هذه الليلة.", target: "اللاعب المحمي" },
     "الشيخ": { eyebrow: "كشف الأسرار", title: "من ستفحص الليلة؟", description: "اختَر لاعباً واحداً لتتحقق سراً إن كان عضواً في المافيا.", target: "هدف الكشف" },
-    "الكشّاف": { eyebrow: "جولة الكشّاف", title: "اختر ثلاثة لاعبين", description: "ستعرف هل يوجد عضو من المافيا بينهم، من دون معرفة هويته بالتحديد.", target: "مجموعة الفحص" },
+    "العرّافة": { eyebrow: "رؤية العرّافة", title: "من ستكشفين الليلة؟", description: "اختاري لاعباً واحداً لتعرفي سراً إن كان ذئباً.", target: "هدف الرؤية" },
+    "الصياد": { eyebrow: "رصاصة أخيرة", title: "من ستأخذه معك؟", description: "حدّد هدفاً سرياً؛ إن متّ قبل الليلة المقبلة يخرج معك.", target: "الهدف المعلّم" },
+    "عين الليل": { eyebrow: "مراقبة صامتة", title: "من ستراقب الليلة؟", description: "ستعرف هل استيقظ هذا اللاعب ليلاً، من دون معرفة دوره.", target: "هدف المراقبة" },
+    "رابطة القلوب": { eyebrow: "الليلة الأولى", title: "اربط قلبين بمصير واحد", description: "اختر لاعبين اثنين. إذا مات أحدهما لحق به الآخر.", target: "القلبان المرتبطان" },
   };
+  if (me?.role === "الساحرة") {
+    const witch = state.mafiaGame?.me?.witch || {};
+    const victim = state.players.find((player) => player.rawId === witch.victimId);
+    const targets = state.players.filter((player) => player.id !== "me" && player.alive);
+    return `<div class="game-stage">
+      <section class="stage-hero"><span class="mock-flag">قرار سري</span><div class="eyebrow"><span></span> حارسة الجرعات</div><h1>قرار الساحرة</h1><p>${victim ? `اختارت الذئاب ${escapeHtml(victim.name)}. يمكنك إنقاذه، تسميم لاعب آخر، أو تمرير دورك.` : "لم يكتمل قرار الذئاب بعد. يمكنك الانتظار أو تمرير دورك."}</p></section>
+      <div class="section-label"><h2>هدف جرعة الإقصاء</h2><span>${state.selectedTarget ? "تم اختيار هدف" : "اختياري"}</span></div>
+      <div class="target-grid">${targets.map((player) => `<button class="target-card ${state.selectedTarget === player.id ? "is-selected" : ""} ${state.nightChoiceConfirmed ? "is-locked" : ""}" data-target="${player.id}" ${state.nightChoiceConfirmed ? "disabled" : ""}>${avatar(player)}<strong>${escapeHtml(player.name)}</strong><small>حيّ · متصل</small></button>`).join("")}</div>
+      <div class="confirmation-panel ${state.nightChoiceConfirmed ? "is-complete" : ""}"><div class="confirmation-copy"><span class="confirmation-icon">${state.nightChoiceConfirmed ? "✓" : "✦"}</span><div><strong>${state.nightChoiceConfirmed ? "تم تأكيد قرار الساحرة" : "اختر جرعة واحدة أو مرّر"}</strong><small>جرعة الإنقاذ وجرعة الإقصاء متاحتان مرة واحدة لكل مباراة.</small></div></div>
+        <div class="confirmation-footer"><b>${state.nightChoiceConfirmed ? "القرار مقفل" : "قرار واحد"}</b><div class="witch-actions"><button class="button button-secondary" data-action="witch-save" ${state.nightChoiceConfirmed || !witch.canSave || !witch.victimId ? "disabled" : ""}>إنقاذ ${victim ? escapeHtml(victim.name) : "الضحية"}</button><button class="button button-primary" data-action="witch-poison" ${state.nightChoiceConfirmed || !witch.canPoison || !state.selectedTarget ? "disabled" : ""}>استعمال السم</button><button class="button button-secondary" data-action="witch-pass" ${state.nightChoiceConfirmed ? "disabled" : ""}>تمرير</button></div></div>
+      </div></div>`;
+  }
   const actionCopy = roleActions[me?.role];
   if (!actionCopy) {
-    const details = roleDetails[me?.role] || roleDetails["البريء"];
-    return `<div class="game-stage"><section class="stage-hero spectator-night"><span class="mock-flag">${escapeHtml(me?.role || "البريء")}</span><div class="eyebrow"><span></span> الليل مستمر</div><h1>لا قرار لك هذه الليلة</h1><p>${escapeHtml(details.description)}</p></section><div class="spectator-wait">${icon("moon")}<strong>راقب وانتظر شروق النهار</strong><small>ستنتقل المرحلة تلقائياً عند انتهاء قرارات الأدوار.</small></div></div>`;
+    const fallbackRole = wolfGame ? "ساكن القرية" : "المواطن الصالح";
+    const details = roleDetails[me?.role] || roleDetails[fallbackRole];
+    return `<div class="game-stage"><section class="stage-hero spectator-night"><span class="mock-flag">${escapeHtml(me?.role || fallbackRole)}</span><div class="eyebrow"><span></span> الليل مستمر</div><h1>لا قرار لك هذه الليلة</h1><p>${escapeHtml(details.description)}</p></section><div class="spectator-wait">${icon("moon")}<strong>راقب وانتظر شروق النهار</strong><small>ستنتقل المرحلة تلقائياً عند انتهاء قرارات الأدوار.</small></div></div>`;
   }
-  const isShadow = isMafiaRole(me?.role);
-  const isScout = me?.role === "الكشّاف";
-  const requiredConfirmations = isShadow ? Math.max(1, state.players.filter((player) => isMafiaRole(player.role) && player.alive).length) : 1;
-  const targets = state.players.filter((player) => player.id !== "me" && player.alive && (!isShadow || !isMafiaRole(player.role)));
-  const selectionReady = isScout ? state.scoutTargets.length === 3 : Boolean(state.selectedTarget);
-  const targetName = isScout ? state.scoutTargets.map((id) => state.players.find((player) => player.id === id)?.name).filter(Boolean).join("، ") : state.selectedTarget ? state.players.find((player) => player.id === state.selectedTarget)?.name : "";
+  const isPredator = isPredatorRole(me?.role);
+  const isHeart = me?.role === "رابطة القلوب";
+  const requiredConfirmations = isPredator ? Math.max(1, state.players.filter((player) => isPredatorRole(player.role) && player.alive).length) : 1;
+  const targets = state.players.filter((player) => player.id !== "me" && player.alive && (!isPredator || !isPredatorRole(player.role)));
+  const selectionReady = isHeart ? state.scoutTargets.length === 2 : Boolean(state.selectedTarget);
+  const targetName = isHeart ? state.scoutTargets.map((id) => state.players.find((player) => player.id === id)?.name).filter(Boolean).join("، ") : state.selectedTarget ? state.players.find((player) => player.id === state.selectedTarget)?.name : "";
   return `
     <div class="game-stage">
       <section class="stage-hero">
@@ -1532,16 +1587,16 @@ function nightTemplate() {
         <h1>${actionCopy.title}</h1>
         <p>${actionCopy.description}</p>
       </section>
-      <div class="section-label"><h2>${actionCopy.target}</h2><span>${state.nightChoiceConfirmed ? "اختيارك مقفل" : isScout ? `${state.scoutTargets.length} من 3` : state.selectedTarget ? "بانتظار التأكيد" : "اختر لاعباً واحداً"}</span></div>
+      <div class="section-label"><h2>${actionCopy.target}</h2><span>${state.nightChoiceConfirmed ? "اختيارك مقفل" : isHeart ? `${state.scoutTargets.length} من 2` : state.selectedTarget ? "بانتظار التأكيد" : "اختر لاعباً واحداً"}</span></div>
       <div class="target-grid">
-        ${targets.map((player) => `<button class="target-card ${(isScout ? state.scoutTargets.includes(player.id) : state.selectedTarget === player.id) ? "is-selected" : ""} ${state.nightChoiceConfirmed ? "is-locked" : ""}" data-target="${player.id}" ${state.nightChoiceConfirmed ? "disabled" : ""}>${avatar(player)}<strong>${escapeHtml(player.name)}</strong><small>حيّ · متصل</small></button>`).join("")}
+        ${targets.map((player) => `<button class="target-card ${(isHeart ? state.scoutTargets.includes(player.id) : state.selectedTarget === player.id) ? "is-selected" : ""} ${state.nightChoiceConfirmed ? "is-locked" : ""}" data-target="${player.id}" ${state.nightChoiceConfirmed ? "disabled" : ""}>${avatar(player)}<strong>${escapeHtml(player.name)}</strong><small>حيّ · متصل</small></button>`).join("")}
       </div>
       <div class="confirmation-panel ${state.nightChoiceConfirmed ? "is-complete" : ""}">
-        <div class="confirmation-copy"><span class="confirmation-icon">${state.nightChoiceConfirmed ? "✓" : icon("lock")}</span><div><strong>${state.nightChoiceConfirmed ? isScout ? (state.scoutResult ? "يوجد عضو من المافيا داخل المجموعة" : "لا يوجد عضو من المافيا داخل المجموعة") : `تم تأكيد ${escapeHtml(targetName)}` : "أكّد اختيارك النهائي"}</strong><small>${state.nightChoiceConfirmed ? isScout ? "النتيجة جماعية ولا تكشف هوية أي لاعب." : "اكتمل قرار الدور؛ تنتقل المرحلة تلقائياً." : isScout ? "اختر ثلاثة لاعبين بالضبط ثم أكّد الفحص." : "لن تنتظر نهاية الوقت بعد اكتمال التأكيدات."}</small></div></div>
+        <div class="confirmation-copy"><span class="confirmation-icon">${state.nightChoiceConfirmed ? "✓" : icon("lock")}</span><div><strong>${state.nightChoiceConfirmed ? `تم تأكيد ${escapeHtml(targetName)}` : "أكّد اختيارك النهائي"}</strong><small>${state.nightChoiceConfirmed ? "اكتمل قرار الدور؛ تنتقل المرحلة تلقائياً." : isHeart ? "اختر لاعبين اثنين بالضبط ثم أكّد الرابطة." : "لن تنتظر نهاية الوقت بعد اكتمال التأكيدات."}</small></div></div>
         <div class="confirmation-progress"><span style="--confirmed:${state.nightChoiceConfirmed ? 100 : 50}%"></span></div>
-        <div class="confirmation-footer"><b>${state.nightChoiceConfirmed ? requiredConfirmations : isShadow ? Math.min(state.nightConfirmations, requiredConfirmations) : 0} من ${requiredConfirmations} أكدوا</b><button class="button button-primary" data-action="confirm-night" ${!selectionReady || state.nightChoiceConfirmed ? "disabled" : ""}>${state.nightChoiceConfirmed ? "تم التأكيد" : isScout ? "تأكيد المجموعة" : "تأكيد الهدف"}</button></div>
+        <div class="confirmation-footer"><b>${state.nightChoiceConfirmed ? requiredConfirmations : isPredator ? Math.min(state.nightConfirmations, requiredConfirmations) : 0} من ${requiredConfirmations} أكدوا</b><button class="button button-primary" data-action="confirm-night" ${!selectionReady || state.nightChoiceConfirmed ? "disabled" : ""}>${state.nightChoiceConfirmed ? "تم التأكيد" : isHeart ? "تأكيد الرابطة" : "تأكيد الهدف"}</button></div>
       </div>
-      ${isShadow ? `<div class="section-label"><h2>همس المافيا</h2><span>خاص ومباشر</span></div>${channelTemplate("mafia")}<div class="voice-bar">
+      ${isPredator ? `<div class="section-label"><h2>${wolfGame ? "عواء الذئاب" : "همس المافيا"}</h2><span>خاص ومباشر</span></div>${channelTemplate("mafia")}<div class="voice-bar">
         <div><span class="voice-visual"><i></i><i></i><i></i></span><span><strong>قناة الصوت الخاصة</strong><small>${state.voiceStatus === "connected" ? "متصلة عبر LiveKit" : "جارٍ ربط القناة السرية…"}</small></span></div>
         <button class="mic-button ${state.micOn ? "" : "is-muted"}" data-action="toggle-mic" aria-label="${state.micOn ? "كتم الميكروفون" : "تشغيل الميكروفون"}">${icon(state.micOn ? "mic" : "micOff")}</button>
       </div>${voiceParticipantsTemplate()}` : ""}
@@ -1558,7 +1613,12 @@ function dayTemplate() {
   const micDisabled = state.spectator || !me?.alive || Boolean(state.speaker && !isMyTurn);
   const chatChannel = me?.alive || state.spectator ? "public" : "dead";
   const roleResult = state.mafiaGame?.me?.privateResult;
-  const roleResultCopy = roleResult ? (roleResult.type === "inspect" ? (roleResult.shadow ? "كشف الشيخ: اللاعب الذي فحصته عضو في المافيا." : "كشف الشيخ: اللاعب الذي فحصته ليس من المافيا.") : (roleResult.shadow ? "كشف الكشّاف: يوجد عضو من المافيا داخل المجموعة." : "كشف الكشّاف: لا يوجد عضو من المافيا داخل المجموعة.")) : "";
+  const inspectedFaction = isWolfRoom() ? "ذئب" : "من المافيا";
+  const roleResultCopy = !roleResult ? "" : roleResult.type === "inspect"
+    ? (roleResult.shadow ? `نتيجة الكشف: اللاعب ${inspectedFaction}.` : `نتيجة الكشف: اللاعب ليس ${inspectedFaction}.`)
+    : roleResult.type === "spy"
+      ? (roleResult.wokeAtNight ? "عين الليل: اللاعب الذي راقبته استيقظ ليلاً." : "عين الليل: اللاعب الذي راقبته لم يستيقظ ليلاً.")
+      : roleResult.type === "heart" ? "تم ربط القلبين بمصير واحد." : roleResult.type === "elder_survival" ? "نجوت من هجوم الذئاب الأول." : "";
   return `
     <div class="game-stage">
       <section class="stage-hero">
@@ -1893,6 +1953,16 @@ async function handleGameAction(action, target) {
   if (action === "leave-room") {
     await leaveCurrentRoom();
     return;
+  } else if (["witch-save", "witch-poison", "witch-pass"].includes(action)) {
+    const mode = action.replace("witch-", "");
+    const selected = state.selectedTarget ? (state.players.find((player) => player.id === state.selectedTarget)?.rawId || state.selectedTarget) : null;
+    try {
+      await apiRequest(`/api/rooms/${encodeURIComponent(activeRoomCode())}/mafia/night`, { method: "POST", body: JSON.stringify({ mode, targetUserId: mode === "poison" ? selected : null }) });
+      await loadMafiaState();
+      renderGame();
+      showToast(mode === "save" ? "استُعملت جرعة الإنقاذ" : mode === "poison" ? "استُعملت جرعة الإقصاء" : "مرّرت الساحرة دورها");
+    } catch (error) { showToast(error.message); }
+    return;
   } else if (action === "toggle-mic") {
     await toggleMicrophonePermission();
     return;
@@ -1945,8 +2015,8 @@ async function handleGameAction(action, target) {
     return;
   } else if (action === "confirm-night") {
     const me = state.players.find((player) => player.id === "me");
-    const isScout = me?.role === "الكشّاف";
-    const choiceReady = isScout ? state.scoutTargets.length === 3 : Boolean(state.selectedTarget);
+    const isHeart = me?.role === "رابطة القلوب";
+    const choiceReady = isHeart ? state.scoutTargets.length === 2 : Boolean(state.selectedTarget);
     if (!choiceReady || state.nightChoiceConfirmed) return;
     if (state.mafiaGame) {
       try {
@@ -1959,15 +2029,12 @@ async function handleGameAction(action, target) {
       } catch (error) { showToast(error.message); }
       return;
     }
-    const requiredConfirmations = isMafiaRole(me?.role) ? Math.max(1, state.players.filter((player) => isMafiaRole(player.role) && player.alive).length) : 1;
-    if (isScout) {
-      state.scoutResult = state.scoutTargets.some((id) => isMafiaRole(state.players.find((player) => player.id === id)?.role));
-    }
+    const requiredConfirmations = isPredatorRole(me?.role) ? Math.max(1, state.players.filter((player) => isPredatorRole(player.role) && player.alive).length) : 1;
     state.nightChoiceConfirmed = true;
     state.nightConfirmations = requiredConfirmations;
     nightAudioTransition = true;
     renderGame();
-    showToast(isScout ? (state.scoutResult ? "يوجد عضو من المافيا داخل المجموعة" : "لا يوجد عضو من المافيا داخل المجموعة") : "اكتمل قرار دورك — يبدأ النهار الآن");
+    showToast("اكتمل قرار دورك — ننتظر بقية الأدوار");
     void (async () => {
       const sleepCuePlayed = await gameAudio.playRoleSleep(me?.role);
       if (!sleepCuePlayed) await new Promise((resolve) => window.setTimeout(resolve, isScout ? 2600 : 650));
@@ -2171,13 +2238,13 @@ function bindEvents() {
     const targetButton = event.target.closest("[data-target]");
     if (targetButton && !state.spectator && !state.nightChoiceConfirmed) {
       const me = state.players.find((player) => player.id === "me");
-      if (me?.role === "الكشّاف") {
+      if (me?.role === "رابطة القلوب") {
         const targetId = targetButton.dataset.target;
         if (state.scoutTargets.includes(targetId)) state.scoutTargets = state.scoutTargets.filter((id) => id !== targetId);
-        else if (state.scoutTargets.length < 3) state.scoutTargets.push(targetId);
-        else showToast("يمكن للكشّاف اختيار ثلاثة لاعبين فقط");
-        if (state.scoutTargets.length < 3) showToast(`اختير ${state.scoutTargets.length} من 3 لاعبين`);
-        else showToast("اكتملت المجموعة — أكّد الفحص");
+        else if (state.scoutTargets.length < 2) state.scoutTargets.push(targetId);
+        else showToast("يمكن ربط لاعبين اثنين فقط");
+        if (state.scoutTargets.length < 2) showToast(`اختير ${state.scoutTargets.length} من 2`);
+        else showToast("اكتمل القلبان — أكّد الرابطة");
       } else {
         state.selectedTarget = targetButton.dataset.target;
         showToast(`اختيار مبدئي: ${state.players.find((p) => p.id === state.selectedTarget).name} — أكّد للمتابعة`);
@@ -2409,8 +2476,6 @@ function bindEvents() {
     renderLobby();
     showToast(`أخرج المضيف ${removed?.name || "المشاهد"} من الغرفة`);
   });
-  $("#cupidToggle").addEventListener("change", (event) => { state.options.cupid = event.target.checked; saveOptions(); showToast(state.options.cupid ? "أُضيفت الخطّابة — رابطة القلوب" : "أُزيلت الخطّابة"); });
-  $("#witchToggle").addEventListener("change", (event) => { state.options.witch = event.target.checked; saveOptions(); showToast(state.options.witch ? "أُضيفت الساحرة — حارسة الجرعات" : "أُزيلت الساحرة"); });
   $("#privateRoomToggle").addEventListener("change", async (event) => {
     state.options.privateRoom = event.target.checked;
     const activeRoom = state.rooms.find((room) => room.id === state.activeRoomId);
@@ -2509,7 +2574,7 @@ function bindEvents() {
 
   roomChat.addEventListener("chat-error", (event) => showToast(event.detail));
   roomChat.addEventListener("game-sync", async (event) => {
-    if (!["mafia", "imposter", "bluff"].includes(event.detail?.gameType) || state.route !== "game" || !activeRoomCode()) return;
+    if (!["mafia", "wolf", "imposter", "bluff"].includes(event.detail?.gameType) || state.route !== "game" || !activeRoomCode()) return;
     try {
       await loadRoom(activeRoomCode());
       if (event.detail.gameType === "imposter") await loadImposterState();

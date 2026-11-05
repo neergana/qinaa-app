@@ -17,11 +17,16 @@ export const NARRATION_CUES = Object.freeze({
 });
 
 const ROLE_CUES = Object.freeze({
+  "المافيا": { wake: "shadowWake", sleep: "shadowSleep" },
   "عضو المافيا": { wake: "shadowWake", sleep: "shadowSleep" },
   "أفراد الظل": { wake: "shadowWake", sleep: "shadowSleep" },
+  "الذئب": { wake: "shadowWake", sleep: "shadowSleep" },
+  "الطبيب": { wake: "rescuerWake", sleep: "rescuerSleep" },
   "المُنقذ": { wake: "rescuerWake", sleep: "rescuerSleep" },
   "الشيخ": { wake: "sheikhWake", sleep: "sheikhSleep" },
+  "العرّافة": { wake: "sheikhWake", sleep: "sheikhSleep" },
   "الساحرة": { wake: "witchWake", sleep: "witchSleep" },
+  "رابطة القلوب": { wake: "matchmakerWake", sleep: "matchmakerSleep" },
   "الخطّابة": { wake: "matchmakerWake", sleep: "matchmakerSleep" },
 });
 

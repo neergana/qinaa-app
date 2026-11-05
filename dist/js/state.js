@@ -1,12 +1,12 @@
 export const initialPlayers = [
-  { id: "me", name: "سامي", initial: "س", accent: "a1", host: true, alive: true, connected: true, role: "عضو المافيا" },
-  { id: "noor", name: "نور", initial: "ن", accent: "a2", alive: true, connected: true, role: "عضو المافيا" },
-  { id: "layan", name: "ليان", initial: "ل", accent: "a3", alive: true, connected: true, role: "المُنقذ" },
+  { id: "me", name: "سامي", initial: "س", accent: "a1", host: true, alive: true, connected: true, role: "المافيا" },
+  { id: "noor", name: "نور", initial: "ن", accent: "a2", alive: true, connected: true, role: "المافيا" },
+  { id: "layan", name: "ليان", initial: "ل", accent: "a3", alive: true, connected: true, role: "الطبيب" },
   { id: "omar", name: "عمر", initial: "ع", accent: "a4", alive: true, connected: true, role: "الشيخ" },
-  { id: "mariam", name: "مريم", initial: "م", accent: "a5", alive: true, connected: true, role: "الكشّاف" },
-  { id: "youssef", name: "يوسف", initial: "ي", accent: "a6", alive: true, connected: true, role: "البريء" },
-  { id: "salma", name: "سلمى", initial: "س", accent: "a2", alive: true, connected: true, role: "البريء" },
-  { id: "ziad", name: "زياد", initial: "ز", accent: "a3", alive: true, connected: true, role: "البريء" },
+  { id: "mariam", name: "مريم", initial: "م", accent: "a5", alive: true, connected: true, role: "المواطن الصالح" },
+  { id: "youssef", name: "يوسف", initial: "ي", accent: "a6", alive: true, connected: true, role: "المواطن الصالح" },
+  { id: "salma", name: "سلمى", initial: "س", accent: "a2", alive: true, connected: true, role: "المواطن الصالح" },
+  { id: "ziad", name: "زياد", initial: "ز", accent: "a3", alive: true, connected: true, role: "المواطن الصالح" },
 ];
 
 export const initialRooms = [
@@ -25,7 +25,7 @@ export const state = {
   account: null,
   spectator: false,
   spectators: [],
-  options: { cupid: false, witch: false, privateRoom: false },
+  options: { privateRoom: false },
   connected: true,
   botActive: false,
   currentTab: "arena",

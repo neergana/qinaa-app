@@ -406,6 +406,8 @@ main { min-height: calc(100vh - 10rem); }
 .confirmation-footer { display: flex; align-items: center; justify-content: space-between; gap: .75rem; }
 .confirmation-footer b { color: var(--muted); font-size: .58rem; }
 .confirmation-footer .button { min-height: 2.7rem; padding-inline: 1.15rem; font-size: .65rem; }
+.witch-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:.35rem; }
+.confirmation-footer .witch-actions .button { min-height:2.25rem; padding:.45rem .7rem; font-size:.5rem; }
 
 .automation-note { display: flex; gap: .6rem; margin-top: .8rem; padding: .7rem; border: 1px solid rgba(196,142,229,.13); border-radius: .8rem; color: var(--purple-2); background: rgba(143,63,196,.045); }
 .automation-note svg { flex: 0 0 auto; width: 1.05rem; height: 1.05rem; margin-top: .1rem; }
@@ -686,10 +688,12 @@ dialog::backdrop { background: rgba(0,0,0,.74); backdrop-filter: blur(7px); }
 .game-choice-grid { display: grid; gap: .75rem; }
 .game-choice-card { position: relative; overflow: hidden; padding: 1.1rem; border: 1px solid var(--line); border-radius: 1.15rem; color: var(--ink); background: linear-gradient(145deg, rgba(143,63,196,.22), rgba(20,5,32,.97)); text-align: right; cursor: pointer; box-shadow: 0 18px 45px rgba(5,0,10,.28); }
 .game-choice-card.imposter { background: linear-gradient(145deg, rgba(233,185,79,.13), rgba(20,5,32,.97)); }
+.game-choice-card.wolf { background: linear-gradient(145deg, rgba(132,88,203,.24), rgba(16,5,28,.98)); }
 .game-choice-card.bluff { background: linear-gradient(145deg, rgba(73,184,173,.14), rgba(20,5,32,.97)); }
 .game-choice-card::after { content:""; position:absolute; width:8rem; height:8rem; top:-3.5rem; left:-2rem; border:1px solid rgba(196,142,229,.16); border-radius:50%; }
 .game-choice-icon { display:grid; width:3.4rem; height:3.4rem; margin-bottom:.8rem; place-items:center; border-radius:.9rem; color:var(--yellow); background:rgba(143,63,196,.28); font-size:1.5rem; font-weight:800; }
 .game-choice-card.imposter .game-choice-icon { color:#171020; background:var(--yellow); }
+.game-choice-card.wolf .game-choice-icon { color:#fff; background:#4d2878; }
 .game-choice-card.bluff .game-choice-icon { color:#071b1a; background:#60d4c8; }
 .game-choice-card small { color:var(--purple-2); font-size:.54rem; }
 .game-choice-card h2 { margin:.18rem 0 .3rem; font-size:1.25rem; }
@@ -714,6 +718,7 @@ dialog::backdrop { background: rgba(0,0,0,.74); backdrop-filter: blur(7px); }
 .game-landing-hero { position:relative; overflow:hidden; margin:1rem; padding:1.5rem 1.1rem 1.2rem; border:1px solid rgba(143,63,196,.34); border-radius:1.25rem; background:radial-gradient(circle at 20% 10%, rgba(143,63,196,.28), transparent 12rem), #170722; text-align:center; }
 .game-landing-hero.imposter { border-color:rgba(233,185,79,.28); background:radial-gradient(circle at 20% 10%, rgba(233,185,79,.15), transparent 12rem), #170722; }
 .game-landing-hero.bluff { border-color:rgba(73,184,173,.3); background:radial-gradient(circle at 20% 10%, rgba(73,184,173,.17), transparent 12rem), #170722; }
+.game-landing-hero.wolf { border-color:rgba(160,112,229,.34); background:radial-gradient(circle at 20% 10%, rgba(132,88,203,.22), transparent 12rem), #14051f; }
 .game-landing-symbol { display:grid; width:5rem; height:5rem; margin:.8rem auto 1rem; place-items:center; border:1px solid rgba(233,185,79,.25); border-radius:50%; color:var(--yellow); background:rgba(143,63,196,.14); font-size:2rem; font-weight:800; }
 .game-landing-hero > small { color:var(--purple-2); font-size:.6rem; }
 .game-landing-hero h1 { margin:.3rem 0; font-size:2.15rem; }
