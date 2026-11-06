@@ -29,10 +29,45 @@ class Client {
 async function main() {
   const players = Array.from({ length: 11 }, (_, index) => new Client(index + 1));
   await Promise.all(players.map((player) => player.register()));
+
+  const mafiaAuto = await players[0].request("/api/rooms", { method: "POST", expected: 201, body: { gameType: "mafia", private: true } });
+  await Promise.all(players.slice(1, 8).map((player) => player.request(`/api/rooms/${mafiaAuto.room.code}/join`, { method: "POST" })));
+  await players[0].request(`/api/rooms/${mafiaAuto.room.code}/start`, { method: "POST", body: {} });
+  const mafiaRoles = (await Promise.all(players.slice(0, 8).map((player) => player.request(`/api/rooms/${mafiaAuto.room.code}/me`)))).map((membership) => membership.role);
+  assert.equal(mafiaRoles.filter((role) => role === "المافيا").length, 1);
+  assert.equal(mafiaRoles.filter((role) => role === "الطبيب").length, 1);
+  assert.equal(mafiaRoles.filter((role) => role === "الشيخ").length, 1);
+  assert.equal(mafiaRoles.filter((role) => role === "المواطن الصالح").length, 5);
+  await players[0].request(`/api/rooms/${mafiaAuto.room.code}/end`, { method: "POST" });
+
+  const wolfAuto = await players[0].request("/api/rooms", { method: "POST", expected: 201, body: { gameType: "wolf", private: true } });
+  await Promise.all(players.slice(1, 9).map((player) => player.request(`/api/rooms/${wolfAuto.room.code}/join`, { method: "POST" })));
+  await players[0].request(`/api/rooms/${wolfAuto.room.code}/start`, { method: "POST", body: {} });
+  const wolfAutoRoles = (await Promise.all(players.slice(0, 9).map((player) => player.request(`/api/rooms/${wolfAuto.room.code}/me`)))).map((membership) => membership.role);
+  assert.equal(wolfAutoRoles.filter((role) => role === "الذئب").length, 2);
+  assert.equal(wolfAutoRoles.filter((role) => role === "العرّافة").length, 1);
+  assert.equal(wolfAutoRoles.filter((role) => role === "الساحرة").length, 1);
+  assert.equal(wolfAutoRoles.filter((role) => role === "ساكن القرية").length, 5);
+  await players[0].request(`/api/rooms/${wolfAuto.room.code}/end`, { method: "POST" });
+
   const created = await players[0].request("/api/rooms", { method: "POST", expected: 201, body: { gameType: "wolf", private: true } });
   const code = created.room.code;
   assert.equal(created.room.gameType, "wolf");
   await Promise.all(players.slice(1).map((player) => player.request(`/api/rooms/${code}/join`, { method: "POST" })));
+  const manualConfig = {
+    "الذئب": 2,
+    "العرّافة": 1,
+    "الساحرة": 1,
+    "الصياد": 1,
+    "عين الليل": 1,
+    "رابطة القلوب": 1,
+    "الملعون": 1,
+    "العجوز": 1,
+    "ساكن القرية": 2,
+  };
+  await players[1].request(`/api/rooms/${code}`, { method: "PATCH", expected: 403, body: { roleMode: "manual", roleConfig: manualConfig } });
+  const configured = await players[0].request(`/api/rooms/${code}`, { method: "PATCH", body: { roleMode: "manual", roleConfig: manualConfig } });
+  assert.equal(configured.room.roleMode, "manual");
   const started = await players[0].request(`/api/rooms/${code}/start`, { method: "POST", body: {} });
   assert.equal(started.gameType, "wolf");
 
@@ -66,7 +101,7 @@ async function main() {
   const eyeState = await byRole.get("عين الليل")[0].request(`/api/rooms/${code}/mafia`);
   assert.equal(eyeState.me.privateResult.wokeAtNight, true);
   await players[0].request(`/api/rooms/${code}/end`, { method: "POST" });
-  process.stdout.write("✓ ذئاب القرية: توزيع الأدوار، قرارات الليل وتحول الملعون تعمل\n");
+  process.stdout.write("✓ التوزيع التلقائي واليدوي، صلاحية المضيف، قرارات الليل وتحول الملعون تعمل\n");
 }
 
 main().catch((error) => { console.error(error); process.exitCode = 1; });

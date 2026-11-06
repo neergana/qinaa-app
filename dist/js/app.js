@@ -6,10 +6,10 @@ import {
   resetForNight,
   startDay,
   startVote,
-} from "./state.js?v=44";
+} from "./state.js?v=45";
 import { roomChat } from "./services/room-chat.js?v=40";
 import { liveKitVoice } from "./services/livekit-voice.js?v=21";
-import { gameAudio } from "./services/game-audio.js?v=44";
+import { gameAudio } from "./services/game-audio.js?v=45";
 
 const $ = (selector, scope = document) => scope.querySelector(selector);
 const $$ = (selector, scope = document) => [...scope.querySelectorAll(selector)];
@@ -56,6 +56,45 @@ const gameDefaults = {
   imposter: { gameType: "imposter", slug: "aldakhil", name: "الدخيل", eyebrow: "كلمة واحدة وشكوك كثيرة", shortDescription: "يعرف الجميع الكلمة إلا الدخيل. اسألوا بعضكم واكشفوه قبل أن يخمّن السر." },
   bluff: { gameType: "bluff", slug: "bluff-card", name: "بطاقة الخداع", eyebrow: "تُصدّق الادعاء… أم تكشف الكذبة؟", shortDescription: "مرّر البطاقة مقلوبة وادّعِ ما تشاء. اكشف كذب خصومك، وتجنّب تراكم البطاقات أمامك." },
 };
+
+const roleSetupDefinitions = {
+  mafia: [
+    { role: MAFIA_ROLE, team: "فريق المافيا", max: 20 },
+    { role: "الطبيب", team: "دور خاص", max: 1 },
+    { role: "الشيخ", team: "دور خاص", max: 1 },
+    { role: "المواطن الصالح", team: "فريق المدينة", max: 20 },
+  ],
+  wolf: [
+    { role: WOLF_ROLE, team: "فريق الذئاب", max: 20 },
+    { role: "العرّافة", team: "دور خاص", max: 1 },
+    { role: "الساحرة", team: "دور خاص", max: 1 },
+    { role: "الصياد", team: "دور خاص", max: 1 },
+    { role: "عين الليل", team: "دور خاص", max: 1 },
+    { role: "رابطة القلوب", team: "دور خاص", max: 1 },
+    { role: "الملعون", team: "دور خاص", max: 1 },
+    { role: "العجوز", team: "دور خاص", max: 1 },
+    { role: "ساكن القرية", team: "فريق القرية", max: 20 },
+  ],
+};
+
+function automaticPredatorCount(count) {
+  if (count >= 13) return 3;
+  if (count >= 9) return 2;
+  return 1;
+}
+
+function automaticRoleCounts(gameType, count) {
+  const predator = gameType === "wolf" ? WOLF_ROLE : MAFIA_ROLE;
+  const ordinary = gameType === "wolf" ? "ساكن القرية" : "المواطن الصالح";
+  const special = gameType === "wolf" ? ["العرّافة", "الساحرة"] : ["الطبيب", "الشيخ"];
+  const counts = { [predator]: automaticPredatorCount(count), [special[0]]: 1, [special[1]]: 1 };
+  counts[ordinary] = Math.max(0, count - Object.values(counts).reduce((sum, value) => sum + value, 0));
+  return counts;
+}
+
+function completeRoleCounts(gameType, input = {}) {
+  return Object.fromEntries((roleSetupDefinitions[gameType] || []).map(({ role }) => [role, Math.max(0, Number(input[role] || 0))]));
+}
 
 const icon = (name) => {
   const icons = {
@@ -436,15 +475,13 @@ function shuffle(items) {
 
 function distributeRoles() {
   const count = state.players.length;
-  const mafiaCount = count >= 16 ? 4 : count >= 12 ? 3 : count >= 8 ? 2 : 1;
+  const mafiaCount = automaticPredatorCount(count);
   const deck = Array(mafiaCount).fill(isWolfRoom() ? WOLF_ROLE : MAFIA_ROLE);
   if (isWolfRoom()) {
-    ["العرّافة", "الساحرة", "الصياد", "عين الليل", "رابطة القلوب", "الملعون", "العجوز"].forEach((role, index) => {
-      if (count >= index + 5 && deck.length < count) deck.push(role);
-    });
+    deck.push("العرّافة", "الساحرة");
     while (deck.length < count) deck.push("ساكن القرية");
   } else {
-    if (count >= 5) deck.push("الطبيب", "الشيخ");
+    deck.push("الطبيب", "الشيخ");
     while (deck.length < count) deck.push("المواطن الصالح");
   }
   const distributed = shuffle(deck);
@@ -1006,6 +1043,49 @@ function navigate(route, { fromHistory = false, replace = false } = {}) {
   }
 }
 
+function renderRoleDistribution(activeRoom, isHost) {
+  const container = $("#roleDistributionSettings");
+  const supported = ["mafia", "wolf"].includes(activeRoom?.gameType);
+  container.hidden = !supported;
+  if (!supported) return;
+  const gameType = activeRoom.gameType;
+  const expectedPlayers = Math.max(6, state.players.length);
+  const mode = activeRoom.roleMode === "manual" ? "manual" : "automatic";
+  const stored = completeRoleCounts(gameType, activeRoom.roleConfig || {});
+  const hasStoredCounts = Object.values(stored).some((value) => value > 0);
+  const counts = mode === "automatic"
+    ? completeRoleCounts(gameType, automaticRoleCounts(gameType, expectedPlayers))
+    : hasStoredCounts ? stored : completeRoleCounts(gameType, automaticRoleCounts(gameType, expectedPlayers));
+  $$('[data-role-mode]', container).forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.roleMode === mode);
+    button.disabled = !isHost || state.spectator;
+    button.setAttribute("aria-pressed", String(button.dataset.roleMode === mode));
+  });
+  $("#roleDistributionHint").textContent = mode === "automatic"
+    ? `قِناع يوزع ${expectedPlayers} أدوار تلقائياً: خصم واحد من 6–8، خصمان من 9–12، وثلاثة من 13–20.`
+    : isHost ? "أنت وحدك تتحكم في عدد كل دور. يجب أن يساوي المجموع عدد اللاعبين عند البدء." : "المضيف اختار توزيعاً يدوياً للأدوار.";
+  const definitions = roleSetupDefinitions[gameType];
+  const visibleDefinitions = mode === "automatic" ? definitions.filter(({ role }) => counts[role] > 0) : definitions;
+  $("#roleCountList").innerHTML = visibleDefinitions.map(({ role, team, max }) => {
+    const value = counts[role] || 0;
+    const controls = mode === "manual" && isHost && !state.spectator;
+    return `<div class="role-count-row">
+      <div class="role-count-name"><strong>${escapeHtml(role)}</strong><small>${escapeHtml(team)}</small></div>
+      <div class="role-count-control">
+        ${controls ? `<button type="button" data-role-step="-1" data-role-name="${escapeHtml(role)}" ${value <= 0 ? "disabled" : ""} aria-label="إنقاص ${escapeHtml(role)}">−</button>` : ""}
+        <b>${value}</b>
+        ${controls ? `<button type="button" data-role-step="1" data-role-name="${escapeHtml(role)}" ${value >= Math.min(max, expectedPlayers) ? "disabled" : ""} aria-label="زيادة ${escapeHtml(role)}">+</button>` : ""}
+      </div>
+    </div>`;
+  }).join("");
+  const total = Object.values(counts).reduce((sum, value) => sum + value, 0);
+  const valid = total === expectedPlayers;
+  $("#roleCountSummary").classList.toggle("is-invalid", mode === "manual" && !valid);
+  $("#roleCountSummary").textContent = mode === "automatic"
+    ? `التوزيع الجاهز: ${total} أدوار لـ${expectedPlayers} لاعبين`
+    : valid ? `المجموع صحيح: ${total} من ${expectedPlayers}` : `المجموع ${total} من ${expectedPlayers} — عدّل الأعداد قبل البدء`;
+}
+
 function renderLobby() {
   const activeRoom = state.rooms.find((room) => room.id === state.activeRoomId);
   const imposter = activeRoom?.gameType === "imposter";
@@ -1031,13 +1111,12 @@ function renderLobby() {
   $("#tablePlayerCount").textContent = state.players.length;
   $("#lobbyRoomName").textContent = activeRoom?.name || (imposter ? "مجلس الدخيل" : bluff ? "طاولة بطاقة الخداع" : wolf ? "قرية الذئاب" : "مجلس قِناع");
   $("#lobbyRoomKicker").textContent = imposter ? "غرفة الدخيل" : bluff ? "غرفة بطاقة الخداع" : wolf ? "غرفة ذئاب القرية" : "غرفة المافيا";
-  $("#settingsTitle").textContent = imposter ? "قواعد الدخيل" : bluff ? "قواعد بطاقة الخداع" : wolf ? "أدوار ذئاب القرية" : "إعدادات الجولة";
-  $("#settingsSubtitle").textContent = imposter || bluff ? "تتكيّف تلقائياً مع عدد اللاعبين" : "توزيع ذكي حسب العدد";
-  $$('[data-mafia-setting]').forEach((row) => { row.hidden = imposter || bluff || wolf; });
-  $$('[data-wolf-setting]').forEach((row) => { row.hidden = !wolf; });
+  $("#settingsTitle").textContent = imposter ? "قواعد الدخيل" : bluff ? "قواعد بطاقة الخداع" : wolf ? "أدوار ذئاب القرية" : "أدوار المافيا";
+  $("#settingsSubtitle").textContent = imposter || bluff ? "تتكيّف تلقائياً مع عدد اللاعبين" : activeRoom?.roleMode === "manual" ? "المضيف يتحكم في الأدوار" : "توزيع تلقائي متوازن";
+  renderRoleDistribution(activeRoom, isHost);
   $$('[data-imposter-setting]').forEach((row) => { row.hidden = !imposter; });
   $$('[data-bluff-setting]').forEach((row) => { row.hidden = !bluff; });
-  const minimum = imposter ? 4 : bluff ? 3 : 5;
+  const minimum = imposter ? 4 : bluff ? 3 : 6;
   $("#minimumHint").textContent = state.spectator ? "الجولة لم تبدأ بعد؛ ستنتقل إلى المشاهدة عند بدئها" : !isHost ? "في انتظار أن يبدأ المضيف الجولة" : state.players.length >= minimum ? `كل شيء جاهز · ${state.players.length} لاعبين` : `سيضيف قِناع ${minimum - state.players.length} روبوتات تلقائياً عند البدء`;
   $("#startGameButton").disabled = !isHost || state.spectator;
   $("#startGameButton span").textContent = imposter ? "بدء لعبة الدخيل" : bluff ? "بدء بطاقة الخداع" : wolf ? "بدء ذئاب القرية" : "بدء المافيا";
@@ -2485,6 +2564,34 @@ function bindEvents() {
       if (activeRoomCode()) await apiRequest(`/api/rooms/${encodeURIComponent(activeRoomCode())}`, { method: "PATCH", body: JSON.stringify({ private: state.options.privateRoom }) });
       await loadRooms();
       showToast(state.options.privateRoom ? "أصبحت الغرفة خاصة ومخفية عن المشاهدين" : "أصبحت الغرفة عامة وقابلة للمشاهدة");
+    } catch (error) { showToast(error.message); }
+  });
+  $("#roleDistributionSettings").addEventListener("click", async (event) => {
+    const modeButton = event.target.closest("[data-role-mode]");
+    const stepButton = event.target.closest("[data-role-step]");
+    if (!modeButton && !stepButton) return;
+    const activeRoom = state.rooms.find((room) => room.id === state.activeRoomId);
+    const isHost = Boolean(state.account && activeRoom?.hostUserId === state.account.id);
+    if (!activeRoom || !isHost || state.spectator || !["mafia", "wolf"].includes(activeRoom.gameType)) return;
+    const expectedPlayers = Math.max(6, state.players.length);
+    const stored = completeRoleCounts(activeRoom.gameType, activeRoom.roleConfig || {});
+    const config = Object.values(stored).some((value) => value > 0) ? stored : completeRoleCounts(activeRoom.gameType, automaticRoleCounts(activeRoom.gameType, expectedPlayers));
+    let roleMode = activeRoom.roleMode === "manual" ? "manual" : "automatic";
+    if (modeButton) roleMode = modeButton.dataset.roleMode;
+    if (stepButton) {
+      roleMode = "manual";
+      const definition = roleSetupDefinitions[activeRoom.gameType].find(({ role }) => role === stepButton.dataset.roleName);
+      if (!definition) return;
+      const nextValue = Number(config[definition.role] || 0) + Number(stepButton.dataset.roleStep || 0);
+      config[definition.role] = Math.max(0, Math.min(definition.max, expectedPlayers, nextValue));
+    }
+    try {
+      await apiRequest(`/api/rooms/${encodeURIComponent(activeRoom.code)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ roleMode, roleConfig: roleMode === "manual" ? config : {} }),
+      });
+      await loadRoom(activeRoom.code);
+      showToast(roleMode === "automatic" ? "تفعّل التوزيع التلقائي" : "حُفظ توزيع الأدوار اليدوي");
     } catch (error) { showToast(error.message); }
   });
   $("#startGameButton").addEventListener("click", () => requireAccount(async () => {

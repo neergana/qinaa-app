@@ -258,6 +258,24 @@ main { min-height: calc(100vh - 10rem); }
 .setting-row strong { font-size: .75rem; }
 .setting-row div > span { margin-top: .17rem; color: var(--muted); font-size: .57rem; }
 .ready-tag { padding: .22rem .4rem; border: 1px solid rgba(85,219,169,.18); border-radius: .45rem; color: var(--green); font-size: .52rem; }
+.role-distribution { padding: .85rem 0; border-bottom: 1px solid var(--line); }
+.role-mode-selector { display: grid; grid-template-columns: 1fr 1fr; gap: .45rem; padding: .3rem; border: 1px solid var(--line); border-radius: .85rem; background: rgba(7,3,13,.42); }
+.role-mode-selector button { min-height: 2.6rem; border: 0; border-radius: .65rem; color: var(--muted); background: transparent; font: inherit; font-size: .7rem; font-weight: 800; cursor: pointer; }
+.role-mode-selector button.is-active { color: #160a20; background: var(--yellow); box-shadow: 0 8px 24px rgba(244,194,68,.14); }
+.role-mode-selector button:disabled { cursor: default; opacity: .78; }
+.role-distribution-hint { margin: .65rem 0; color: var(--muted); font-size: .61rem; line-height: 1.7; }
+.role-count-list { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: .45rem; }
+.role-count-row { display: flex; align-items: center; justify-content: space-between; gap: .5rem; min-height: 3.1rem; padding: .5rem .62rem; border: 1px solid var(--line); border-radius: .7rem; background: rgba(255,255,255,.018); }
+.role-count-name { min-width: 0; }
+.role-count-name strong, .role-count-name small { display: block; }
+.role-count-name strong { font-size: .66rem; }
+.role-count-name small { margin-top: .12rem; color: var(--muted); font-size: .5rem; }
+.role-count-control { display: flex; align-items: center; gap: .34rem; flex: 0 0 auto; }
+.role-count-control button { display: grid; width: 1.7rem; height: 1.7rem; place-items: center; border: 1px solid rgba(166,111,255,.22); border-radius: .5rem; color: var(--text); background: rgba(128,62,188,.12); font: inherit; font-size: .85rem; cursor: pointer; }
+.role-count-control button:disabled { opacity: .3; cursor: default; }
+.role-count-control b { min-width: 1.2rem; text-align: center; font-size: .72rem; }
+.role-count-summary { margin-top: .55rem; padding: .48rem .6rem; border-radius: .6rem; color: var(--green); background: rgba(85,219,169,.07); font-size: .57rem; font-weight: 700; }
+.role-count-summary.is-invalid { color: #ff8298; background: rgba(255,82,112,.08); }
 .switch { position: relative; width: 2.65rem; height: 1.45rem; }
 .switch input { position: absolute; opacity: 0; }
 .switch span { position: absolute; inset: 0; border-radius: 999px; background: #32293c; cursor: pointer; transition: .2s; }

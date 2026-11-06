@@ -8,6 +8,23 @@ const LEGACY_MAFIA_ROLES = new Set(["عضو المافيا", "أفراد الظ�
 const WOLF_ROLE = "الذئب";
 const MAFIA_CITIZEN_ROLE = "المواطن الصالح";
 const WOLF_VILLAGER_ROLE = "ساكن القرية";
+const MAFIA_ROLE_DEFINITIONS = [
+  { role: MAFIA_ROLE, max: 20 },
+  { role: "الطبيب", max: 1 },
+  { role: "الشيخ", max: 1 },
+  { role: MAFIA_CITIZEN_ROLE, max: 20 },
+];
+const WOLF_ROLE_DEFINITIONS = [
+  { role: WOLF_ROLE, max: 20 },
+  { role: "العرّافة", max: 1 },
+  { role: "الساحرة", max: 1 },
+  { role: "الصياد", max: 1 },
+  { role: "عين الليل", max: 1 },
+  { role: "رابطة القلوب", max: 1 },
+  { role: "الملعون", max: 1 },
+  { role: "العجوز", max: 1 },
+  { role: WOLF_VILLAGER_ROLE, max: 20 },
+];
 const BLUFF_CARD_TYPES = [
   { id: "cockroach", name: "الصرصور", symbol: "▰", color: "#b9873f" },
   { id: "butterfly", name: "الفراشة", symbol: "✦", color: "#f39a3d" },
@@ -620,8 +637,31 @@ async function oauthCallback(request, env, provider) {
   return new Response(null, { status: 302, headers });
 }
 
+function parsedRoomRoleConfig(row) {
+  try {
+    const value = JSON.parse(row?.role_config || "{}");
+    return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  } catch (_) {
+    return {};
+  }
+}
+
 function clientRoom(row) {
-  return { id: row.id, code: row.code, name: row.name, gameType: row.game_type || "mafia", status: row.status === "playing" ? "جولة جارية" : "بانتظار اللاعبين", phase: row.status === "playing" ? "night" : "day", players: Number(row.players || 0), capacity: Number(row.capacity || 20), spectators: 0, private: Boolean(row.is_private), hostUserId: row.host_user_id };
+  return {
+    id: row.id,
+    code: row.code,
+    name: row.name,
+    gameType: row.game_type || "mafia",
+    status: row.status === "playing" ? "جولة جارية" : "بانتظار اللاعبين",
+    phase: row.status === "playing" ? "night" : "day",
+    players: Number(row.players || 0),
+    capacity: Number(row.capacity || 20),
+    spectators: 0,
+    private: Boolean(row.is_private),
+    hostUserId: row.host_user_id,
+    roleMode: row.role_mode === "manual" ? "manual" : "automatic",
+    roleConfig: parsedRoomRoleConfig(row),
+  };
 }
 
 function isBotId(userId) {
@@ -839,8 +879,22 @@ async function updateRoom(request, env, code, user) {
   if (room.host_user_id !== user.id) return json({ error: "المضيف وحده يستطيع تعديل الغرفة." }, 403);
   let input = {};
   try { input = await request.json(); } catch (_) { /* No changes. */ }
-  await env.DB.prepare("UPDATE rooms SET is_private = ?, name = ? WHERE id = ?")
-    .bind(input.private ? 1 : 0, clean(input.name, room.name, 60), room.id).run();
+  let roleMode = room.role_mode === "manual" ? "manual" : "automatic";
+  let roleConfig = parsedRoomRoleConfig(room);
+  if (["mafia", "wolf"].includes(room.game_type) && (input.roleMode !== undefined || input.roleConfig !== undefined)) {
+    if (room.status !== "lobby") return json({ error: "لا يمكن تغيير الأدوار بعد بدء الجولة." }, 409);
+    if (input.roleMode !== undefined && !["automatic", "manual"].includes(input.roleMode)) return json({ error: "طريقة توزيع الأدوار غير صالحة." }, 400);
+    roleMode = input.roleMode || roleMode;
+    if (input.roleConfig !== undefined) {
+      const normalized = normalizeManualRoleConfig(room.game_type, input.roleConfig);
+      if (normalized.error) return json({ error: normalized.error }, 400);
+      roleConfig = normalized.config;
+    }
+    if (roleMode === "automatic") roleConfig = {};
+  }
+  const nextPrivate = typeof input.private === "boolean" ? (input.private ? 1 : 0) : Number(room.is_private || 0);
+  await env.DB.prepare("UPDATE rooms SET is_private = ?, name = ?, role_mode = ?, role_config = ? WHERE id = ?")
+    .bind(nextPrivate, clean(input.name, room.name, 60), roleMode, Object.keys(roleConfig).length ? JSON.stringify(roleConfig) : null, room.id).run();
   return json({ room: clientRoom(await roomRecord(env, code)) });
 }
 
@@ -879,27 +933,58 @@ async function leaveRoom(env, code, user) {
   return json({ left: true, botReplacement, newHostUserId: room.host_user_id === user.id ? nextHuman?.user_id || null : room.host_user_id });
 }
 
-function roleDeck(count, gameType = "mafia") {
-  const predatorCount = count >= 16 ? 4 : count >= 12 ? 3 : count >= 8 ? 2 : 1;
-  const deck = Array(predatorCount).fill(gameType === "wolf" ? WOLF_ROLE : MAFIA_ROLE);
-  if (gameType === "wolf") {
-    if (count >= 5) deck.push("العرّافة");
-    if (count >= 6) deck.push("الساحرة");
-    if (count >= 7) deck.push("الصياد");
-    if (count >= 8) deck.push("عين الليل");
-    if (count >= 9) deck.push("رابطة القلوب");
-    if (count >= 10) deck.push("الملعون");
-    if (count >= 11) deck.push("العجوز");
-    while (deck.length < count) deck.push(WOLF_VILLAGER_ROLE);
-  } else {
-    if (count >= 5) deck.push("الطبيب", "الشيخ");
-    while (deck.length < count) deck.push(MAFIA_CITIZEN_ROLE);
+function roleDefinitions(gameType) {
+  return gameType === "wolf" ? WOLF_ROLE_DEFINITIONS : MAFIA_ROLE_DEFINITIONS;
+}
+
+function automaticPredatorCount(count) {
+  if (count >= 13) return 3;
+  if (count >= 9) return 2;
+  return 1;
+}
+
+function automaticRoleConfig(count, gameType = "mafia") {
+  const predator = gameType === "wolf" ? WOLF_ROLE : MAFIA_ROLE;
+  const ordinary = gameType === "wolf" ? WOLF_VILLAGER_ROLE : MAFIA_CITIZEN_ROLE;
+  const special = gameType === "wolf" ? ["العرّافة", "الساحرة"] : ["الطبيب", "الشيخ"];
+  const config = { [predator]: automaticPredatorCount(count), [special[0]]: 1, [special[1]]: 1 };
+  config[ordinary] = Math.max(0, count - Object.values(config).reduce((sum, value) => sum + value, 0));
+  return config;
+}
+
+function normalizeManualRoleConfig(gameType, input) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return { error: "إعداد الأدوار اليدوي غير صالح." };
+  const definitions = roleDefinitions(gameType);
+  const allowed = new Map(definitions.map((entry) => [entry.role, entry.max]));
+  if (Object.keys(input).some((role) => !allowed.has(role))) return { error: "يتضمن الإعداد دوراً غير متاح لهذه اللعبة." };
+  const config = {};
+  for (const { role, max } of definitions) {
+    const raw = input[role] ?? 0;
+    const count = Number(raw);
+    if (!Number.isInteger(count) || count < 0 || count > max) return { error: `عدد دور «${role}» غير صالح.` };
+    config[role] = count;
+  }
+  return { config };
+}
+
+function roleDeck(count, gameType = "mafia", roleMode = "automatic", rawConfig = {}) {
+  const normalized = roleMode === "manual" ? normalizeManualRoleConfig(gameType, rawConfig) : { config: automaticRoleConfig(count, gameType) };
+  if (normalized.error) return normalized;
+  const config = normalized.config;
+  const total = Object.values(config).reduce((sum, value) => sum + Number(value || 0), 0);
+  if (total !== count) return { error: `مجموع الأدوار اليدوية هو ${total}، بينما الغرفة تحتاج ${count} أدوار.` };
+  const predator = gameType === "wolf" ? WOLF_ROLE : MAFIA_ROLE;
+  if (!config[predator]) return { error: `اختر دور ${predator} واحداً على الأقل.` };
+  if (Number(config[predator]) >= count) return { error: "يجب أن يبقى لاعب واحد على الأقل في الفريق المقابل." };
+  const deck = [];
+  for (const { role } of roleDefinitions(gameType)) {
+    for (let index = 0; index < Number(config[role] || 0); index += 1) deck.push(role);
   }
   for (let index = deck.length - 1; index > 0; index -= 1) {
     const other = Math.floor(Math.random() * (index + 1));
     [deck[index], deck[other]] = [deck[other], deck[index]];
   }
-  return deck;
+  return { deck, config };
 }
 
 async function activeImposterContext(env, code) {
@@ -2038,10 +2123,18 @@ async function startRoom(request, env, code, user) {
   const round = await env.DB.prepare("SELECT id FROM rounds WHERE room_id = ? AND status = 'active' ORDER BY number DESC LIMIT 1").bind(room.id).first();
   if (room.game_type === "imposter") return startImposterRound(env, room, round, user);
   if (room.game_type === "bluff") return startBluffRound(env, room, round, user);
-  const botsAdded = await fillRoomWithBots(env, room.id, round?.id, 5);
+  const currentMembers = await env.DB.prepare("SELECT user_id FROM room_members WHERE room_id = ? ORDER BY joined_at").bind(room.id).all();
+  const expectedCount = Math.max(6, currentMembers.results.length);
+  let setup = roleDeck(expectedCount, room.game_type, room.role_mode === "manual" ? "manual" : "automatic", parsedRoomRoleConfig(room));
+  if (setup.error) return json({ error: setup.error }, 409);
+  const botsAdded = await fillRoomWithBots(env, room.id, round?.id, 6);
   const members = await env.DB.prepare("SELECT user_id FROM room_members WHERE room_id = ? ORDER BY joined_at").bind(room.id).all();
-  if (members.results.length < 5) return json({ error: "تعذر تجهيز العدد الأدنى من اللاعبين." }, 409);
-  const deck = roleDeck(members.results.length, room.game_type);
+  if (members.results.length < 6) return json({ error: "تعذر تجهيز العدد الأدنى من اللاعبين." }, 409);
+  if (members.results.length !== expectedCount) {
+    setup = roleDeck(members.results.length, room.game_type, room.role_mode === "manual" ? "manual" : "automatic", parsedRoomRoleConfig(room));
+    if (setup.error) return json({ error: setup.error }, 409);
+  }
+  const deck = setup.deck;
   const now = new Date().toISOString();
   await env.DB.batch([
     ...members.results.map((member, index) => env.DB.prepare("UPDATE room_members SET role = ?, alive = 1, round_id = ? WHERE room_id = ? AND user_id = ?").bind(deck[index], round.id, room.id, member.user_id)),
@@ -2555,7 +2648,7 @@ export default {
         if (adminRoomMatch && method === "DELETE") return adminDeleteRoom(env, context, adminRoomMatch[1]);
         if (url.pathname === "/api/admin/settings" && method === "PATCH") return adminUpdateSettings(request, env, context);
         if (url.pathname === "/api/admin/games" && method === "GET") return json({ games: await listGamePages(env) });
-        const adminGameMatch = url.pathname.match(/^\/api\/admin\/games\/(mafia|imposter|bluff)$/);
+        const adminGameMatch = url.pathname.match(/^\/api\/admin\/games\/(mafia|wolf|imposter|bluff)$/);
         if (adminGameMatch && method === "PATCH") return adminUpdateGamePage(request, env, context, adminGameMatch[1]);
         if (url.pathname === "/api/admin/admins" && method === "GET") return adminListAdmins(env);
         if (url.pathname === "/api/admin/admins" && method === "POST") return adminAddAdmin(request, env, context);

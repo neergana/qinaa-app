@@ -150,16 +150,16 @@ async function main() {
 
   const started = await host.request(`/api/rooms/${privateCode}/start`, { method: "POST", body: { options: { cupid: true, witch: true } } });
   assert.equal(started.started, true);
-  assert.equal(started.botsAdded, 3);
+  assert.equal(started.botsAdded, 4);
   const playing = await host.request(`/api/rooms/${privateCode}`);
-  assert.equal(playing.members.length, 5);
-  assert.equal(playing.members.filter((member) => member.bot).length, 3);
+  assert.equal(playing.members.length, 6);
+  assert.equal(playing.members.filter((member) => member.bot).length, 4);
   assert.equal((await host.request(`/api/rooms/${privateCode}/me`)).gameType, "mafia");
   await third.request(`/api/rooms/${privateCode}/join`, { method: "POST", expected: 409 });
   await guest.request(`/api/rooms/${privateCode}/leave`, { method: "DELETE" });
   const replaced = await host.request(`/api/rooms/${privateCode}`);
-  assert.equal(replaced.members.length, 5);
-  assert.equal(replaced.members.filter((member) => member.bot).length, 4);
+  assert.equal(replaced.members.length, 6);
+  assert.equal(replaced.members.filter((member) => member.bot).length, 5);
   await host.request(`/api/rooms/${privateCode}/end`, { method: "POST" });
   await host.request(`/api/rooms/${privateCode}`, { expected: 410 });
   step("بداية المافيا، الأدوار، الروبوتات، التعويض ونهاية الرابط تعمل");
